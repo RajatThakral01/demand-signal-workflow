@@ -23,9 +23,11 @@ class Settings(BaseSettings):
     # --- Required, no default -> fail fast if missing in-process. --------------
     database_url: str = ""
 
-    # --- Credentials / integration (empty until the relevant phase uses them). -
+    # --- Credentials / integration (empty until the relevant phase uses them). --
+    # ADMIN_API_KEY is REQUIRED (no default): it is the only auth gate, so the
+    # app must fail fast at import rather than silently accept a fallback value.
     openrouter_api_key: str = ""
-    admin_api_key: str = ""
+    admin_api_key: str
 
     # --- Policy file selection -------------------------------------------------
     scoring_policy_version: str = "scoring_policy_v1.json"

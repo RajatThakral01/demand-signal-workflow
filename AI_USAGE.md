@@ -35,7 +35,12 @@ this file is `ai-usage.json`.
   unused; OpenRouter key empty (Phase 3); `scoring_policy_v1.json` /
   `identity_policy_v1.json` are `{}`; PII-redaction processor in `logging.py`
   is an intentional no-op until Phase 7; Alembic has no revision yet.
-- **Human review / changes:** pending Rajat review this commit.
+- **Human review / changes:** Rajat reviewed Phase 0 and requested three fixups,
+  all applied in commit "Phase 0 fixup": (1) remove the hardcoded `ADMIN_API_KEY`
+  default from `docker-compose.yml` and make `app/config.py` require it (verified:
+  `Settings()` now raises `ValidationError` when unset, `/health` still 200 when
+  it's set via `.env`); (2) add a `notes` field to `ai-usage.json` (top-level and
+  per-session); (3) move the PRD and Implementation Plan into `docs/`.
 - **Verification:** `docker compose up` from clean state succeeded and
   `http://localhost:8000/health` returned `{"status":"ok","db":"ok"}` (200)
   via a real `SELECT 1`. The degraded path was also exercised: stopping the DB

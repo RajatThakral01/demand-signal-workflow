@@ -7,6 +7,7 @@
   "version": null,
   "skills_tools": [],
   "costs": [],
+  "notes": [],
   "sessions": [
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0001",
@@ -18,6 +19,9 @@
       "version": null,
       "prompts_or_hashes": [
         "phase 0 scaffolding prompt: folder structure, docker-compose, Dockerfile, alembic, requirements, .env.example, config, logging, health, gitignore, AI disclosure"
+      ],
+"notes": [
+        "Phase 0 post-review fixups (Rajat review): (1) removed hardcoded ADMIN_API_KEY default from docker-compose.yml and made app/config.py require it (fail-fast) - verified settings raises ValidationError when unset and /health still 200 when set via .env; (2) added 'notes' field top-level and per-session to ai-usage.json; (3) moved PRD + Implementation Plan into docs/ via git mv; README already referenced docs/"
       ],
       "skills_tools": [],
       "generated_files": [

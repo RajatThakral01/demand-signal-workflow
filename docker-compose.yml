@@ -31,7 +31,10 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       CLASSIFICATION_MODEL: ${CLASSIFICATION_MODEL:-anthropic/claude-haiku-4.5}
-      ADMIN_API_KEY: ${ADMIN_API_KEY:-dsw_admin_local_dev}
+      # ADMIN_API_KEY is intentionally REQUIRED via .env with NO fallback — the
+      # only runtime auth gate must not silently accept a hardcoded value. If
+      # unset, config.py fails fast at import (see app/config.py).
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
       SCORING_POLICY_VERSION: ${SCORING_POLICY_VERSION:-scoring_policy_v1.json}
       IDENTITY_POLICY_VERSION: ${IDENTITY_POLICY_VERSION:-identity_policy_v1.json}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
