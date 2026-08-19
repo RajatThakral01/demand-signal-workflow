@@ -1,0 +1,24 @@
+# Demand-Signal Workflow — pinned Python dependencies (Python 3.11+)
+# Versions pinned for reproducibility. Verify against PRD §6 Tech Stack.
+
+# --- Runtime ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+sqlalchemy[asyncio]==2.0.52
+asyncpg==0.31.0
+alembic==1.19.1
+pydantic==2.13.4
+pydantic-settings==2.15.0
+structlog==26.1.0
+tenacity==9.1.4
+httpx==0.28.1
+# openai SDK pinned to v2.x: OpenRouter exposes an OpenAI-compatible endpoint and
+# this project consumes the classic `chat.completions` shape via the openai SDK's
+# async client. v2.x is the line that guarantees that API surface for Phase 3.
+openai==2.54.0
+jinja2==3.1.6
+python-dotenv==1.1.0
+
+# --- Test ---
+pytest==9.1.1
+pytest-asyncio==1.4.0

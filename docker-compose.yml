@@ -1,0 +1,45 @@
+# Local-only deployment shape (PRD §6): one FastAPI app service + one Postgres.
+# No message broker, no paid service (PRD §2 / Appendix). The app talks to the
+# `db` service over an internal Docker network.
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: dsw
+      # LOCAL-ONLY disposable dev credential. Overridable via .env (DB *should*
+      # come through DATABASE_URL app-side, but Postgres itself needs these).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dsw_local_dev}
+      POSTGRES_DB: dsw
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dsw -d dsw"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # In-compose default points at the `db` service. Overridable via .env.
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      CLASSIFICATION_MODEL: ${CLASSIFICATION_MODEL:-anthropic/claude-haiku-4.5}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-dsw_admin_local_dev}
+      SCORING_POLICY_VERSION: ${SCORING_POLICY_VERSION:-scoring_policy_v1.json}
+      IDENTITY_POLICY_VERSION: ${IDENTITY_POLICY_VERSION:-identity_policy_v1.json}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_ENV: ${APP_ENV:-local}
+      RETRY_MAX_ATTEMPTS: ${RETRY_MAX_ATTEMPTS:-3}
+      RETRY_BASE_DELAY_MS: ${RETRY_BASE_DELAY_MS:-500}
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:

@@ -1,0 +1,58 @@
+{
+  "evaluation_id": "DAXVORA-RAJAT-2026-08-A01",
+  "project": "demand-signal-workflow",
+  "export_path": "AI_USAGE.md",
+  "provider": "OpenRouter",
+  "model": "~deepseek/deepseek-v4-flash-latest",
+  "version": null,
+  "skills_tools": [],
+  "costs": [],
+  "sessions": [
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0001",
+      "phase": "Phase 0 - Scaffolding, Environment & Disclosure Setup",
+      "started_at": "2026-08-20T00:00:00Z",
+      "ended_at": "2026-08-20T00:00:00Z",
+      "provider": "OpenRouter",
+      "model": "~deepseek/deepseek-v4-flash-latest",
+      "version": null,
+      "prompts_or_hashes": [
+        "phase 0 scaffolding prompt: folder structure, docker-compose, Dockerfile, alembic, requirements, .env.example, config, logging, health, gitignore, AI disclosure"
+      ],
+      "skills_tools": [],
+      "generated_files": [
+        "docker-compose.yml",
+        "Dockerfile",
+        ".dockerignore",
+        "alembic.ini",
+        "requirements.txt",
+        ".env.example",
+        ".gitignore",
+        "app/__init__.py",
+        "app/config.py",
+        "app/logging.py",
+        "app/main.py",
+        "app/db/__init__.py",
+        "app/db/models.py",
+        "app/db/session.py",
+        "app/db/migrations/env.py",
+        "app/db/migrations/script.py.mako",
+        "app/db/migrations/versions/.gitkeep",
+        "app/schemas/__init__.py",
+        "app/services/__init__.py",
+        "app/routers/__init__.py",
+        "app/policies/scoring_policy_v1.json",
+        "app/policies/identity_policy_v1.json",
+        "app/templates/.gitkeep",
+        "fixtures/.gitkeep",
+        "tests/__init__.py",
+        "tests/unit/.gitkeep",
+        "tests/integration/.gitkeep",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "human_modified_files": [],
+      "verification": "docker compose up succeeded from clean state; GET /health returned 200 {'status':'ok','db':'ok'} via real SELECT 1; confirmed degraded path 503 {'status':'degraded'} when db stopped; confirmed structlog emits single JSON line carrying input_id/decision/reason/action/result/error/timing_ms"
+    }
+  ]
+}
