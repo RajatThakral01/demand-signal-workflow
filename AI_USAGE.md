@@ -294,3 +294,40 @@ this file is `ai-usage.json`.
   predicate is verified independently: 429→retry, 500→retry, 401→no, 400→no.
 
 ---
+
+### Session: Phase 4 — Score: Versioned Policy Application
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0009`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `deepseek/deepseek-v4-flash` (no new real API
+  call this phase — scoring is deterministic policy application; the LIVE
+  interpretation stage is exercised only through the already-run Phase 3 test).
+- **What was generated:**
+  - `app/policies/scoring_policy_v1.json` populated with `policy_version`,
+    `label_scores` (incl. `"unknown": null`), `source_bonus`, `consent_bonus`,
+    `campaign_bonus`, `confidence_multiplier_enabled` (+ rationale note),
+    `decision_thresholds` (hot 70 / warm 45 / cold 20), `tie_break_rule`,
+    `insufficient_data_rule`.
+  - `Score` model in `app/db/models.py` (table `scores`; score nullable; features
+    NOT NULL; event_id NOT unique).
+  - Alembic `0005_scores` (creates `scores` + non-unique `ix_scores_event_id`;
+    chains from `0004_interpretations`).
+  - `app/services/score.py`: `_load_policy()` (cached), `compute_score()`
+    (structural unknown=>null guard first, then multiplier + bonuses + clamp +
+    threshold decision), `score_event()` (upsert by event_id).
+  - Wired scoring into `app/routers/events.py` POST flow and GET
+    `/api/v1/events/{id}`; extended `EventIngestResponse` with
+    `score` / `decision` / `score_id`.
+- **What is still a placeholder:** `score_event` does NOT write a `receipts` row
+  (receipts table is Phase 6/7; reconciliation is Phase 7).
+- **Human review / changes:** pending Rajat review.
+- **Verification:** `pytest tests/unit/test_scoring_policy.py
+  tests/integration/test_score_event.py -v` → **8 passed**. Full suite →
+  **64 passed, 1 skipped** (target 64+1; live test gated). In-container suite
+  against isolated dsw_test → **64 passed, 1 skipped**. Migration applied cleanly
+  to compose dev DB; `\d scores` shows `score` nullable + `ix_scores_event_id`.
+  Live Docker walkthrough: short-text event → `label=unknown`, `score:null`,
+  `decision:"needs_review"`, `score_features:{label:unknown, insufficient_data:True}`,
+  and `GET /api/v1/events/{id}` returns `score`/`decision`/`score_features`/
+  `policy_version`.
+
+---

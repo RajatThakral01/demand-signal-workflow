@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Event
+from app.db.models import Event, Interpretation, Score
 from app.errors import MalformedJSONError
 from app.db.session import get_db_session
 from app.schemas.events import event_adapter
@@ -19,17 +19,22 @@ from app.schemas.responses import EventIngestResponse
 from app.services import ingest
 from app.services.interpret import InterpretError, classify_event
 from app.services.resolve import resolve_identity
+from app.services.score import score_event
 
 router = APIRouter(prefix="/api/v1", tags=["events"])
 
 
 def _interpret_response(event_id: str, status_flag: str, identity_id: str,
-                        interpret: dict | None) -> EventIngestResponse:
-    """Build the ingest response from resolution + interpretation outcomes."""
+                        interpret: dict | None,
+                        score_row: Score | None = None) -> EventIngestResponse:
+    """Build the ingest response from resolution + interpretation (+score)."""
     if interpret is None:
         return EventIngestResponse(
             event_id=event_id, is_edit=(status_flag == "edit"),
             is_valid=True, status="linked", identity_id=identity_id,
+            score=score_row.score if score_row else None,
+            decision=score_row.decision if score_row else None,
+            score_id=str(score_row.id) if score_row else None,
         )
     return EventIngestResponse(
         event_id=event_id, is_edit=(status_flag == "edit"),
@@ -37,6 +42,9 @@ def _interpret_response(event_id: str, status_flag: str, identity_id: str,
         interpret_status=interpret.get("status"),
         label=interpret.get("label"),
         interpretation_id=interpret.get("interpretation_id"),
+        score=score_row.score if score_row else None,
+        decision=score_row.decision if score_row else None,
+        score_id=str(score_row.id) if score_row else None,
     )
 
 
@@ -108,7 +116,20 @@ async def create_event(
     except InterpretError:
         return _interpret_response(str(event.id), status_flag, identity_id,
                                    {"status": "error"})
-    return _interpret_response(str(event.id), status_flag, identity_id, interpret)
+
+    # Flow 1 step 5: score (FR-5). Requires the interpretation ORM row. Only score
+    # when interpretation succeeded (label present); a provider failure above skips
+    # scoring. An edit re-run upserts the existing score row.
+    interp_obj = (
+        await db.execute(
+            select(Interpretation).where(Interpretation.event_id == event.id)
+        )
+    ).scalars().first()
+    score_row = None
+    if interp_obj is not None:
+        score_row = await score_event(db, event, resolution.get("identity_id"), interp_obj)
+        await db.commit()
+    return _interpret_response(str(event.id), status_flag, identity_id, interpret, score_row)
 
 
 @router.get("/events/{event_id}", response_model=dict)
@@ -121,6 +142,16 @@ async def get_event(
     event = (await db.execute(stmt)).scalars().first()
     if event is None:
         raise HTTPException(status_code=404, detail={"error": "not_found"})
+    # Latest score for this event (Phase 4). event_id is not unique, so pick the
+    # most recent scoring row to reflect the latest pipeline pass.
+    score_row = (
+        await db.execute(
+            select(Score)
+            .where(Score.event_id == event.id)
+            .order_by(Score.created_at.desc())
+            .limit(1)
+        )
+    ).scalars().first()
     return {
         "event_id": str(event.id),
         "external_event_id": event.external_event_id,
@@ -136,4 +167,8 @@ async def get_event(
         "is_valid": event.is_valid,
         "invalid_reason": event.invalid_reason,
         "created_at": event.created_at.isoformat() if event.created_at else None,
+        "score": score_row.score if score_row else None,
+        "decision": score_row.decision if score_row else None,
+        "score_features": score_row.features if score_row else None,
+        "policy_version": score_row.policy_version if score_row else None,
     }

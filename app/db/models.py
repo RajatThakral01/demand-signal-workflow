@@ -171,3 +171,34 @@ class Interpretation(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class Score(Base):
+    """Versioned scoring output for one event (FR-5, Phase 4).
+
+    ``score`` is NULL when the interpretation label is ``unknown`` (policy maps it
+    to null and the scorer returns ``needs_review`` with no arithmetic). ``features``
+    is always present (documents the inputs even on the insufficient-data path).
+    ``event_id`` is intentionally NOT unique: an edited resubmission re-runs the
+    pipeline and upserts this row (Phase 4 upsert in score_event), so a unique
+    constraint would force needless INSERT-ON-CONFLICT plumbing.
+    """
+
+    __tablename__ = "scores"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+    )
+    identity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True
+    )
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    features: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    policy_version: Mapped[str] = mapped_column(String, nullable=False)
+    decision: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

@@ -31,3 +31,7 @@ class EventIngestResponse(BaseModel):
     interpret_status: str | None = None
     label: str | None = None
     interpretation_id: str | None = None
+    # Scoring state (Phase 4). ``score`` is null when label=unknown (needs_review).
+    score: int | None = None
+    decision: str | None = None
+    score_id: str | None = None

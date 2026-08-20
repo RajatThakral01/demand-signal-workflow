@@ -1,1 +1,30 @@
-{}
+{
+  "policy_version": "1.0",
+  "_comment": "Versioned scoring policy (FR-5, Phase 4). Maps an interpretation label to a numeric lead score and decision, with additive source/consent/campaign bonuses and a confidence multiplier. Structural enforcement: label 'unknown' maps to null so the scorer returns decision=needs_review with score=null and performs no arithmetic.",
+  "label_scores": {
+    "pricing_inquiry": 85,
+    "product_question": 60,
+    "competitor_mention": 55,
+    "onboarding": 75,
+    "integration": 70,
+    "feature_request": 65,
+    "other": 40,
+    "unknown": null
+  },
+  "source_bonus": {
+    "web_form": 5,
+    "social_mention": 3,
+    "email_engagement": 4
+  },
+  "consent_bonus": 5,
+  "campaign_bonus": 3,
+  "confidence_multiplier_enabled": true,
+  "_confidence_multiplier_note": "Multiply the label base score by interpretation confidence (0.0-1.0) so a low-confidence label produces a lower score than a high-confidence one, while bonuses still add on top. Keeps the most probable labels scoring highest.",
+  "decision_thresholds": [
+    {"min_score": 70, "decision": "hot"},
+    {"min_score": 45, "decision": "warm"},
+    {"min_score": 20, "decision": "cold"}
+  ],
+  "tie_break_rule": "The higher decision wins at the boundary (>= comparison, descending order).",
+  "insufficient_data_rule": "label=unknown resolves to decision=needs_review with score=null. No arithmetic is performed."
+}

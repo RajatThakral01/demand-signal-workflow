@@ -256,6 +256,26 @@
       ],
       "human_modified_files": [],
       "verification": "full suite 56 passed, 1 skipped. provider-failure test now mocks real openai.APITimeoutError (3 bounded attempts, InterpretError surfaced, no fabricated unknown); test_rate_limit_429 -> 2 attempts; test_auth_error_401_fails_fast_no_retry -> 1 attempt. predicate independently verified: 429 retry, 500 retry, 401 no, 400 no. No new real API cost this session (no live run)"
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0009",
+      "phase": "4",
+      "date": "2026-08-20",
+      "phase_name": "Score: Versioned Policy Application",
+      "summary": "Scoring pipeline (FR-5): populated app/policies/scoring_policy_v1.json (label_scores incl unknown=null, source_bonus, consent_bonus, campaign_bonus, confidence_multiplier_enabled, decision_thresholds hot70/warm45/cold20, tie_break_rule, insufficient_data_rule); added Score model + Alembic 0005_scores (score nullable, event_id non-unique, ix_scores_event_id); new app/services/score.py (cached _load_policy, compute_score with structural unknown=>null guard, score_event upsert-by-event_id); wired into POST /api/v1/events (after classify_event success) and GET /api/v1/events/{id} (latest score); extended EventIngestResponse with score/decision/score_id.",
+      "files_modified": [
+        "app/policies/scoring_policy_v1.json",
+        "app/db/models.py",
+        "app/db/migrations/versions/0005_scores.py",
+        "app/services/score.py",
+        "app/routers/events.py",
+        "app/schemas/responses.py",
+        "tests/unit/test_scoring_policy.py",
+        "tests/integration/test_score_event.py",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "verification": "8 new tests pass (5 unit + 3 integration); full suite 64 passed, 1 skipped locally and in-container (target 64+1). Migration applied to compose dev DB; scores table shows score nullable + ix_scores_event_id non-unique. Live Docker walkthrough: short-text event -> label unknown, score null, decision needs_review, score_features {label:unknown, insufficient_data:True}; GET /events/{id} returns score/decision/score_features/policy_version. Placeholder: score_event does not write receipts (Phase 6/7). No new real API cost this phase."
     }
   ]
 }
