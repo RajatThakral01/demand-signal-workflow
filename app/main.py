@@ -13,6 +13,7 @@ from app.db.session import check_db
 from app.errors import MalformedJSONError
 from app.logging import configure_logging, get_logger
 from app.routers.events import router as events_router
+from app.routers.leads import router as leads_router
 from app.routers.manual_review import router as manual_review_router
 
 configure_logging(settings.log_level)
@@ -45,6 +46,7 @@ async def _malformed_json_handler(request: Request, exc: MalformedJSONError) -> 
 
 
 app.include_router(events_router)
+app.include_router(leads_router)
 app.include_router(manual_review_router)
 
 

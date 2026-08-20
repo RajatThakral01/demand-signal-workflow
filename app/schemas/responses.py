@@ -35,3 +35,11 @@ class EventIngestResponse(BaseModel):
     score: int | None = None
     decision: str | None = None
     score_id: str | None = None
+    # Act state (Phase 5). ``lead_op`` is "created" or "updated"; ``queue`` /
+    # ``rule_matched`` / ``sla_deadline`` describe the routing decision.
+    lead_id: str | None = None
+    lead_op: str | None = None     # "created" or "updated"
+    route_id: str | None = None
+    queue: str | None = None
+    rule_matched: str | None = None
+    sla_deadline: str | None = None

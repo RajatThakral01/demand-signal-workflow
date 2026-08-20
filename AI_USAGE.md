@@ -331,3 +331,46 @@ this file is `ai-usage.json`.
   `policy_version`.
 
 ---
+
+### Session: Phase 5 — Act: Lead Creation, Routing, SLA
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0010`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `deepseek/deepseek-v4-flash` (no new real API
+  call this phase — routing is deterministic policy application; the LIVE
+  interpretation stage is exercised only through the already-run Phase 3 test).
+- **What was generated:**
+  - `app/policies/routing_rules_v1.json` — ordered rule table: hot_any
+    (sales_urgent, 2h), warm_pricing (sales_priority, 8h), warm_any
+    (sales_default, 24h), needs_review_any (manual_queue, 48h), cold_any
+    (nurture, 72h); fallback → unassigned / fallback_no_rule / 72h.
+  - `Lead` and `Route` models in `app/db/models.py` (leads.identity_id UNIQUE;
+    routes.rule_matched NOT NULL on every route including fallback).
+  - Alembic `0006_leads_routes` (chains from `0005_scores`; uq_leads_identity_id,
+    ix_leads_status, ix_routes_lead_id).
+  - `app/services/act.py`: `_load_routing_rules()` (cached), pure
+    `apply_routing_rule()` (first-match-wins, fallback on no match),
+    `create_or_update_lead()` (UNIQUE-anchor idempotency, IntegrityError →
+    re-read winner), `route_lead()` (sla_deadline = now + sla_hours), `act()`
+    (single commit: lead + route together).
+  - Wired act into `app/routers/events.py` POST flow (raw UUID identity);
+    extended `EventIngestResponse` with lead_id/lead_op/route_id/queue/
+    rule_matched/sla_deadline.
+  - New `app/routers/leads.py` mounted in `app/main.py`: GET /api/v1/leads
+    (filters: status/source/decision) and GET /api/v1/leads/{id} (full detail;
+    404 flat `{"error": "not_found"}`).
+- **What is still a placeholder:** the receipts write is a TODO stub inside
+  `act()` — Phase 7 adds the actual write inside the same commit block without
+  restructuring the transaction. `escalated` is computed-on-read for v1 (no
+  scheduler).
+- **Human review / changes:** pending Rajat review.
+- **Verification:** `pytest tests/unit/test_routing_rules.py
+  tests/integration/test_act.py -v` → **11 passed**. Full suite →
+  **75 passed, 1 skipped** (target 75+1). In-container suite against isolated
+  dsw_test → **75 passed, 1 skipped**. Migration applied to compose dev DB;
+  `\d leads` shows uq_leads_identity_id + ix_leads_status; `\d routes` shows
+  rule_matched NOT NULL + ix_routes_lead_id. Live Docker walkthrough: warm event
+  → queue=sales_default / rule_matched=warm_any; re-POST same email →
+  same lead_id, lead_op=updated, DB count=1 (exactly-once); GET /api/v1/leads
+  and /leads/{id} return queue/rule_matched/sla_deadline/score/decision/features.
+
+---

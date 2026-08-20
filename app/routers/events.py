@@ -17,6 +17,7 @@ from app.db.session import get_db_session
 from app.schemas.events import event_adapter
 from app.schemas.responses import EventIngestResponse
 from app.services import ingest
+from app.services.act import act as act_pipeline
 from app.services.interpret import InterpretError, classify_event
 from app.services.resolve import resolve_identity
 from app.services.score import score_event
@@ -26,8 +27,9 @@ router = APIRouter(prefix="/api/v1", tags=["events"])
 
 def _interpret_response(event_id: str, status_flag: str, identity_id: str,
                         interpret: dict | None,
-                        score_row: Score | None = None) -> EventIngestResponse:
-    """Build the ingest response from resolution + interpretation (+score)."""
+                        score_row: Score | None = None,
+                        act_result: dict | None = None) -> EventIngestResponse:
+    """Build the ingest response from resolution + interpretation (+score+act)."""
     if interpret is None:
         return EventIngestResponse(
             event_id=event_id, is_edit=(status_flag == "edit"),
@@ -35,6 +37,12 @@ def _interpret_response(event_id: str, status_flag: str, identity_id: str,
             score=score_row.score if score_row else None,
             decision=score_row.decision if score_row else None,
             score_id=str(score_row.id) if score_row else None,
+            lead_id=act_result.get("lead_id") if act_result else None,
+            lead_op=act_result.get("lead_op") if act_result else None,
+            route_id=act_result.get("route_id") if act_result else None,
+            queue=act_result.get("queue") if act_result else None,
+            rule_matched=act_result.get("rule_matched") if act_result else None,
+            sla_deadline=act_result.get("sla_deadline") if act_result else None,
         )
     return EventIngestResponse(
         event_id=event_id, is_edit=(status_flag == "edit"),
@@ -45,6 +53,12 @@ def _interpret_response(event_id: str, status_flag: str, identity_id: str,
         score=score_row.score if score_row else None,
         decision=score_row.decision if score_row else None,
         score_id=str(score_row.id) if score_row else None,
+        lead_id=act_result.get("lead_id") if act_result else None,
+        lead_op=act_result.get("lead_op") if act_result else None,
+        route_id=act_result.get("route_id") if act_result else None,
+        queue=act_result.get("queue") if act_result else None,
+        rule_matched=act_result.get("rule_matched") if act_result else None,
+        sla_deadline=act_result.get("sla_deadline") if act_result else None,
     )
 
 
@@ -128,8 +142,13 @@ async def create_event(
     score_row = None
     if interp_obj is not None:
         score_row = await score_event(db, event, resolution.get("identity_id"), interp_obj)
-        await db.commit()
-    return _interpret_response(str(event.id), status_flag, identity_id, interpret, score_row)
+        await db.commit()   # Score commit (unchanged)
+
+    # Flow 1 step 6: act — create/update lead + route (FR-6, FR-7). Uses raw UUID.
+    act_result = await act_pipeline(db, event, resolution["identity_id"], score_row)
+
+    return _interpret_response(str(event.id), status_flag, identity_id, interpret,
+                               score_row, act_result)
 
 
 @router.get("/events/{event_id}", response_model=dict)

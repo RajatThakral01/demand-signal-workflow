@@ -1,0 +1,42 @@
+{
+  "routing_rules_version": "1.0",
+  "_comment": "Ordered routing rule table (FR-7). Rules evaluated top-to-bottom; first match wins. Fallback fires when no rule matches. rule_matched is recorded on every route including the fallback.",
+  "rules": [
+    {
+      "name": "hot_any",
+      "condition": { "decision": "hot" },
+      "queue": "sales_urgent",
+      "sla_hours": 2
+    },
+    {
+      "name": "warm_pricing",
+      "condition": { "decision": "warm", "label": "pricing_inquiry" },
+      "queue": "sales_priority",
+      "sla_hours": 8
+    },
+    {
+      "name": "warm_any",
+      "condition": { "decision": "warm" },
+      "queue": "sales_default",
+      "sla_hours": 24
+    },
+    {
+      "name": "needs_review_any",
+      "condition": { "decision": "needs_review" },
+      "queue": "manual_queue",
+      "sla_hours": 48
+    },
+    {
+      "name": "cold_any",
+      "condition": { "decision": "cold" },
+      "queue": "nurture",
+      "sla_hours": 72
+    }
+  ],
+  "fallback": {
+    "queue": "unassigned",
+    "rule_matched": "fallback_no_rule",
+    "sla_hours": 72,
+    "_comment": "Fires when no rule matches. rule_matched is always 'fallback_no_rule' so it is traceable."
+  }
+}

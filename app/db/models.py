@@ -202,3 +202,53 @@ class Score(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class Lead(Base):
+    """One lead per canonical identity (FR-6). identity_id carries a DB-level
+    UNIQUE constraint as the idempotency anchor — two concurrent creates for the
+    same identity_id cannot both succeed; the loser gets IntegrityError and must
+    re-read and update the winner's row.
+
+    source_event_id: the event that created/most-recently-updated this lead.
+    status: new → routed (set by act); qualified/escalated/closed are future states.
+    updated_at: set server-side on every update.
+    """
+
+    __tablename__ = "leads"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    identity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identities.id"), nullable=False, unique=True
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False, default="new")
+    source_event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Route(Base):
+    """Routing decision for a lead (FR-7). Every route records rule_matched —
+    including fallback routes — so no route is ever untraceable. escalated is
+    computed-on-read for v1 (sla_deadline < now()); no scheduler is added.
+    """
+
+    __tablename__ = "routes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("leads.id"), nullable=False
+    )
+    queue: Mapped[str] = mapped_column(String, nullable=False)
+    rule_matched: Mapped[str] = mapped_column(String, nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    sla_deadline: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    escalated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
