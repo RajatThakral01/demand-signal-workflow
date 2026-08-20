@@ -64,12 +64,11 @@ def compute_score(
     if label_score is None:
         return None, "needs_review", {"label": label, "insufficient_data": True}
 
-    base = int(label_score)
+    label_base = int(label_score)                         # raw policy value
     confidence_multiplier_applied = bool(policy.get("confidence_multiplier_enabled", False))
-    if confidence_multiplier_applied:
-        base = round(base * float(confidence))
+    base = round(label_base * float(confidence)) if confidence_multiplier_applied else label_base
 
-    source_bonus = int(policy.get("source_bonus", {}).get(source, 0))
+    source_bonus = int(policy.get("source_bonus", {}).get(source or "", 0))
     consent_bonus = int(policy.get("consent_bonus", 0)) if consent else 0
     campaign_bonus = (
         int(policy.get("campaign_bonus", 0))
@@ -87,7 +86,8 @@ def compute_score(
         "source": source,
         "consent": consent,
         "campaign_id": campaign_id,
-        "label_base_score": base,
+        "label_base_score": label_base,        # raw value from policy (pre-multiplier)
+        "label_score_after_multiplier": base,  # post-multiplier value used in arithmetic
         "source_bonus": source_bonus,
         "consent_bonus": consent_bonus,
         "campaign_bonus": campaign_bonus,

@@ -275,7 +275,7 @@
         "AI_USAGE.md"
       ],
       "human_modified_files": [],
-      "verification": "8 new tests pass (5 unit + 3 integration); full suite 64 passed, 1 skipped locally and in-container (target 64+1). Migration applied to compose dev DB; scores table shows score nullable + ix_scores_event_id non-unique. Live Docker walkthrough: short-text event -> label unknown, score null, decision needs_review, score_features {label:unknown, insufficient_data:True}; GET /events/{id} returns score/decision/score_features/policy_version. Placeholder: score_event does not write receipts (Phase 6/7). No new real API cost this phase."
+      "verification": "8 new tests pass (5 unit + 3 integration); full suite 64 passed, 1 skipped locally and in-container (target 64+1). Migration applied to compose dev DB; scores table shows score nullable + ix_scores_event_id non-unique. Live Docker walkthrough: short-text event -> label unknown, score null, decision needs_review, score_features {label:unknown, insufficient_data:True}; GET /events/{id} returns score/decision/score_features/policy_version. Placeholder: score_event does not write receipts (Phase 6/7). No new real API cost this phase. Post-review fixup: label_base_score now stores pre-multiplier value; label_score_after_multiplier added for post-multiplier; source None guard added."
     }
   ]
 }

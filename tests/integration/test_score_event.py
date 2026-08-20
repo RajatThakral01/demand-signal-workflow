@@ -64,8 +64,9 @@ async def test_score_recorded_on_happy_path(client, db_session, monkeypatch):
     assert row.score == body["score"]
     assert row.decision == body["decision"]
     for key in ("label", "confidence", "source", "consent", "campaign_id",
-                "label_base_score", "source_bonus", "consent_bonus",
-                "campaign_bonus", "confidence_multiplier_applied", "clamped"):
+                "label_base_score", "label_score_after_multiplier", "source_bonus",
+                "consent_bonus", "campaign_bonus", "confidence_multiplier_applied",
+                "clamped"):
         assert key in row.features, key
     assert row.policy_version
 
