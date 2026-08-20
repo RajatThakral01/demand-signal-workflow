@@ -174,6 +174,31 @@
       ],
       "human_modified_files": [],
       "verification": "pytest against real test Postgres: 50 passed, 0 failed. exact email/phone auto-link and email reuse identity; fuzzy identical above-threshold auto-links; fuzzy shared-token below-threshold -> manual_review_queue with reason and no identity_link; force-merge-below-threshold rejected via should_auto_link gate AND via resolution (no link written); boundary 0.849 no / 0.85 yes / 0.851 yes; HTTP GET manual-review?status=pending and POST resolve (merge_into/create_new) with 400/404/409; alembic 0001->0002 clean on fresh DB"
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0006",
+      "phase": "Phase 2 fixup - DB-enforced identity uniqueness on email/phone, concurrency-safe resolution",
+      "started_at": "2026-08-20T00:00:00Z",
+      "ended_at": "2026-08-20T00:00:00Z",
+      "provider": "OpenRouter",
+      "model": "~deepseek/deepseek-v4-flash-latest",
+      "version": null,
+      "prompts_or_hashes": [
+        "phase 2 review: protect identity resolution from the same SELECT->INSERT race Phase 1 fixed for events; partial unique index on primary_email/primary_phone; catch IntegrityError in exact branches and link to the winner; email+phone concurrency tests"
+      ],
+      "notes": [
+        "partial unique indexes (WHERE col IS NOT NULL) let multiple NULLs coexist while making same email/phone insert impossible at the DB level; _link_via_exact helper catches IntegrityError, rolls back, re-SELECTs winner's identity and links to it, mirroring ingest.create_event; defect found: after rollback the event ORM object is expired and lazy re-read of event.id raised MissingGreenlet in async SQLAlchemy - fixed by capturing stable event_id before flush/rollback; also discovered the app image was stale (built in Phase 1, lacking 0002/0003) so the in-container entrypoint could not see newer revisions until docker compose build"
+      ],
+      "skills_tools": [],
+      "generated_files": [
+        "app/db/migrations/versions/0003_identity_uniqueness.py",
+        "app/db/models.py",
+        "app/services/resolve.py",
+        "tests/integration/test_resolve_identity.py",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "verification": "full suite 52 passed, 0 failed on real test Postgres; new test_concurrent_email_resolution_creates_one_identity and test_concurrent_phone_resolution_creates_one_identity each use asyncio.gather of two resolve_identity calls for the same email/phone, assert one Identity row and both events linked to it; run 3x consecutive, no flakiness; Docker path: rebuilt stale image, entrypoint auto-applied 0001->0002->0003 to compose dev DB with partial unique indexes present (psql \\d identities shows uq_identities_primary_email/phone WHERE IS NOT NULL), in-container suite against isolated dsw_test passed 52"
     }
   ]
 }

@@ -172,3 +172,34 @@ this file is `ai-usage.json`.
   clean on a fresh DB.
 
 ---
+
+### Session: Phase 2 fixup — Concurrency-safe identity resolution
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0006`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `~deepseek/deepseek-v4-flash-latest`
+- **What was generated / changed:** Alembic migration `0003_identity_uniqueness`
+  adds two **partial unique indexes** on `identities.primary_email` and
+  `identities.primary_phone` (`WHERE <col> IS NOT NULL`); matching `Index`
+  declarations added to the `Identity` model (`__table_args__`); the
+  `exact_email`/`exact_phone` branches of `resolve_identity` now route through a
+  concurrency-safe `_link_via_exact` helper that catches the loser's
+  `IntegrityError`, rolls back, re-SELECTs the winner's identity and links to it
+  (mirroring `ingest.create_event` from Phase 1); new concurrency tests for both
+  email and phone.
+- **Defect found & fixed during verification:** after ``db.rollback()`` the
+  `event` ORM object is expired; a lazy re-read of `event.id` raised
+  `MissingGreenlet` in async SQLAlchemy. Fixed by capturing the already-stable
+  `event_id` before the flush/rollback rather than reading it off the expired
+  object.
+- **Verification:** full suite **52 passed, 0 failed** against real test Postgres,
+  including new `test_concurrent_email_resolution_creates_one_identity` and
+  `test_concurrent_phone_resolution_creates_one_identity` (each fires two
+  `resolve_identity` calls via `asyncio.gather` for the same email/phone and
+  asserts exactly **one** Identity row with both events linked to it). Concurrency
+  tests run 3× consecutively (no flakiness). Docker path re-verified: rebuilt the
+  stale app image so its baked-in Alembic revisions include 0002/0003, restarted,
+  entrypoint auto-applied `0001→0002→0003` to the compose dev DB with the partial
+  unique indexes present; full in-container suite against the isolated `dsw_test`
+  DB passed (52).
+
+---

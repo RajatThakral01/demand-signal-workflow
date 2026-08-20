@@ -13,6 +13,10 @@ from sqlalchemy import select
 from app.db.models import Identity, IdentityLink, ManualReviewQueue
 from app.services import resolve as resolve_svc
 
+import uuid
+
+from app.db.session import get_session_factory
+
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
 
 
@@ -24,15 +28,16 @@ def _event(**overrides):
     return base | overrides
 
 
-async def _insert_event(db, event_id, identity_fields, source="web_form"):
+async def _insert_event(db, event_id, identity_fields, source="web_form", ext=None):
     from app.db.models import Event
     from app.services.ingest import compute_dedupe_key, compute_payload_hash
 
+    eid = ext or str(event_id)
     ev = Event(
         id=event_id,
-        external_event_id=str(event_id),  # unique dedupe key per event
+        external_event_id=eid,  # unique dedupe key per event
         source=source,
-        dedupe_key=compute_dedupe_key(source, str(event_id)),
+        dedupe_key=compute_dedupe_key(source, eid),
         payload_hash=compute_payload_hash({"id": str(event_id)}),
         is_valid=True,
         schema_version="1.0",
@@ -49,7 +54,6 @@ async def _insert_event(db, event_id, identity_fields, source="web_form"):
 
 # --- Exact email auto-link ----------------------------------------------------
 async def test_exact_email_auto_links(db_session):
-    import uuid
 
     ev = await _insert_event(db_session, uuid.uuid4(), {"email": "ada@example.com", "name": "Ada"})
     result = await resolve_svc.resolve_identity(db_session, ev)
@@ -63,7 +67,6 @@ async def test_exact_email_auto_links(db_session):
 
 
 async def test_exact_phone_auto_links(db_session):
-    import uuid
 
     ev = await _insert_event(db_session, uuid.uuid4(), {"phone": "+1 (415) 555-0132"})
     result = await resolve_svc.resolve_identity(db_session, ev)
@@ -72,7 +75,6 @@ async def test_exact_phone_auto_links(db_session):
 
 
 async def test_same_email_reuses_identity(db_session):
-    import uuid
 
     e1 = await _insert_event(db_session, uuid.uuid4(), {"email": "a@example.com"})
     r1 = await resolve_svc.resolve_identity(db_session, e1)
@@ -83,7 +85,6 @@ async def test_same_email_reuses_identity(db_session):
 
 # --- Fuzzy: above-threshold auto-links, below-threshold goes to manual review ---
 async def test_fuzzy_above_threshold_auto_links(db_session):
-    import uuid
 
     # Seed an existing identity, then a returning contact with an identical name
     # fuzzy-matches at score 1.00 (>= threshold) and auto-links to it.
@@ -98,7 +99,6 @@ async def test_fuzzy_above_threshold_auto_links(db_session):
 
 
 async def test_fuzzy_below_threshold_goes_to_manual_review(db_session):
-    import uuid
 
     # Seed "Ada Lovelace", then send a name sharing one token ("Ada") but
     # otherwise different -> similar but below threshold -> manual review, never
@@ -120,7 +120,6 @@ async def test_fuzzy_below_threshold_goes_to_manual_review(db_session):
 
 # --- No identity fields parks in review ---------------------------------------
 async def test_no_identity_fields_goes_to_manual_review(db_session):
-    import uuid
 
     ev = await _insert_event(db_session, uuid.uuid4(), {})
     result = await resolve_svc.resolve_identity(db_session, ev)
@@ -130,7 +129,6 @@ async def test_no_identity_fields_goes_to_manual_review(db_session):
 
 # --- Never force-merge below threshold (the "impossible to do" invariant) -----
 async def test_no_code_path_auto_merges_below_threshold(db_session):
-    import uuid
 
     # Seed an existing identity.
     e1 = await _insert_event(
@@ -155,7 +153,6 @@ async def test_no_code_path_auto_merges_below_threshold(db_session):
 
 # --- Manual review resolve endpoint (merge_into / create_new) -----------------
 async def test_manual_review_resolve_merge_into_links(db_session):
-    import uuid
 
     # Seed an existing identity and park a second, ambiguous event in review.
     e1 = await _insert_event(db_session, uuid.uuid4(), {"name": "Ada Lovelace"})
@@ -185,7 +182,6 @@ async def test_manual_review_resolve_merge_into_links(db_session):
 
 
 async def test_manual_review_resolve_create_new(db_session):
-    import uuid
 
     e1 = await _insert_event(db_session, uuid.uuid4(), {"name": "Ada Lovelace"})
     r1 = await resolve_svc.resolve_identity(db_session, e1)
@@ -201,10 +197,53 @@ async def test_manual_review_resolve_create_new(db_session):
 
 
 async def test_resolve_missing_review_raises(db_session):
-    import uuid
-
     try:
         await resolve_svc.resolve_review(db_session, uuid.uuid4(), "create_new")
         assert False, "expected LookupError for missing review"
     except LookupError:
         pass
+
+
+# --- Concurrency: two simultaneous resolves of the same email/phone -------------
+async def _concurrent_resolve(identity_fields):
+    """Fire two resolve_identity calls (own event + own session) near-simultaneously
+    for the same contact, returning the two results."""
+    import asyncio
+    factory = get_session_factory()
+
+    async def attempt(n):
+        async with factory() as s:
+            ev = await _insert_event(s, uuid.uuid4(), identity_fields,
+                                     source="web_form", ext=f"conc-{n}")
+            return await resolve_svc.resolve_identity(s, ev)
+
+    return await asyncio.gather(attempt(1), attempt(2))
+
+
+async def test_concurrent_email_resolution_creates_one_identity(db_engine):
+    r1, r2 = await _concurrent_resolve({"email": "race@example.com"})
+    # Both events ended up linked (not failed) and to the SAME identity.
+    assert r1["status"] == "linked"
+    assert r2["status"] == "linked"
+    assert r1["identity_id"] == r2["identity_id"]
+
+    async with get_session_factory()() as s:
+        identities = (await s.execute(select(Identity))).scalars().all()
+        assert len(identities) == 1, "two canonical identities were created for one email"
+        links = (await s.execute(select(IdentityLink))).scalars().all()
+        assert len(links) == 2
+        assert all(link.identity_id == identities[0].id for link in links)
+
+
+async def test_concurrent_phone_resolution_creates_one_identity(db_engine):
+    r1, r2 = await _concurrent_resolve({"phone": "+1 (415) 555-0199"})
+    assert r1["status"] == "linked"
+    assert r2["status"] == "linked"
+    assert r1["identity_id"] == r2["identity_id"]
+
+    async with get_session_factory()() as s:
+        identities = (await s.execute(select(Identity))).scalars().all()
+        assert len(identities) == 1, "two canonical identities were created for one phone"
+        links = (await s.execute(select(IdentityLink))).scalars().all()
+        assert len(links) == 2
+        assert all(link.identity_id == identities[0].id for link in links)

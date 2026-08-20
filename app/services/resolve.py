@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -142,6 +143,47 @@ def _queue_review(
     return entry
 
 
+async def _link_via_exact(
+    db: AsyncSession,
+    event: Any,
+    match_rule: str,
+    find: Any,
+    value: str,
+    create: Any,
+) -> dict:
+    """Link an event to an existing (or newly created) identity for an exact match.
+
+    Concurrency-safe: two near-simultaneous inserts of the same email/phone both
+    pass the initial SELECT with no matching identity; one INSERT wins and the
+    loser hits the DB-level partial unique index (IntegrityError), rolls back,
+    re-SELECTs the winner's row and links to it — mirroring ingest.create_event.
+    """
+    display_name = (event.identity_fields or {}).get("name")
+    # The event row is already committed by the ingest step, so its id is stable
+    # and safe to hold across a rollback (rollback would otherwise expire the ORM
+    # object, and a lazy re-read of event.id would raise MissingGreenlet).
+    event_id = event.id
+    identity = await find(db, value)
+    if identity is None:
+        identity = create(db, display_name)
+        db.add(identity)
+        try:
+            await db.flush()  # populate identity.id; may raise if we lost a race
+        except IntegrityError:
+            await db.rollback()  # expunges the tentative identity/expires the session
+            identity = await find(db, value)  # fresh, non-expired row from the winner
+            if identity is None:
+                raise
+    link = IdentityLink(
+        identity_id=identity.id, event_id=event_id,
+        match_confidence=Decimal("1.00"), match_rule=match_rule,
+    )
+    db.add(link)
+    await db.commit()
+    return {"status": "linked", "identity_id": identity.id,
+            "rule": match_rule, "confidence": Decimal("1.00")}
+
+
 async def resolve_identity(db: AsyncSession, event: Any) -> dict:
     """Resolve an event to an identity, creating a link and (if new) an identity.
 
@@ -159,37 +201,19 @@ async def resolve_identity(db: AsyncSession, event: Any) -> dict:
     # build_identity_fields (email/phone/name/display_name/handle/company).
     email = normalize_email(fields.get("email"))
     if email:
-        identity = await _find_by_email(db, email)
-        if identity is None:
-            identity = Identity(primary_email=email, display_name=fields.get("name"))
-            db.add(identity)
-            await db.flush()  # populate identity.id before linking
-        link = IdentityLink(
-            identity_id=identity.id, event_id=event.id,
-            match_confidence=Decimal("1.00"), match_rule="exact_email",
+        return await _link_via_exact(
+            db=db, event=event, match_rule="exact_email",
+            find=_find_by_email, value=email,
+            create=lambda db, nm: Identity(primary_email=email, display_name=nm),
         )
-        db.add(link)
-        await db.commit()
-        await db.refresh(identity)
-        return {"status": "linked", "identity_id": identity.id,
-                "rule": "exact_email", "confidence": Decimal("1.00")}
 
     phone = normalize_phone(fields.get("phone"))
     if phone:
-        identity = await _find_by_phone(db, phone)
-        if identity is None:
-            identity = Identity(primary_phone=phone, display_name=fields.get("name"))
-            db.add(identity)
-            await db.flush()  # populate identity.id before linking
-        link = IdentityLink(
-            identity_id=identity.id, event_id=event.id,
-            match_confidence=Decimal("1.00"), match_rule="exact_phone",
+        return await _link_via_exact(
+            db=db, event=event, match_rule="exact_phone",
+            find=_find_by_phone, value=phone,
+            create=lambda db, nm: Identity(primary_phone=phone, display_name=nm),
         )
-        db.add(link)
-        await db.commit()
-        await db.refresh(identity)
-        return {"status": "linked", "identity_id": identity.id,
-                "rule": "exact_phone", "confidence": Decimal("1.00")}
 
     name = (fields.get("name") or fields.get("display_name") or "").strip()
     if name:

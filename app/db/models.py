@@ -1,9 +1,12 @@
 """SQLAlchemy declarative base and ORM models (PRD §6 Database Schema).
 
 Phase 1: ``events`` table. Phase 2: ``identities``, ``identity_links`` and
-``manual_review_queue`` (FR-3, Flow 3). Unique constraints (dedupe_key on
-``events``) are declared here so they are enforced at the DB level and picked up
-by Alembic autogenerate.
+``manual_review_queue`` (FR-3, Flow 3). Unique constraints are declared here so
+they are enforced at the DB level (race protection) and picked up by Alembic.
+
+Phase 2 fixup: partial unique indexes on ``identities.primary_email`` and
+``primary_phone`` (WHERE <col> IS NOT NULL) so two near-simultaneous inserts of
+the same email/phone cannot each create a separate canonical identity.
 """
 
 import uuid
@@ -14,6 +17,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -68,6 +72,21 @@ class Identity(Base):
     """
 
     __tablename__ = "identities"
+
+    __table_args__ = (
+        Index(
+            "uq_identities_primary_email",
+            "primary_email",
+            unique=True,
+            postgresql_where="primary_email IS NOT NULL",
+        ),
+        Index(
+            "uq_identities_primary_phone",
+            "primary_phone",
+            unique=True,
+            postgresql_where="primary_phone IS NOT NULL",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
