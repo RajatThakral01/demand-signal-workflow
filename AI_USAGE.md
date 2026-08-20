@@ -374,3 +374,40 @@ this file is `ai-usage.json`.
   and /leads/{id} return queue/rule_matched/sla_deadline/score/decision/features.
 
 ---
+
+### Session: Phase 6 — Attribution: First/Last-Touch
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0011`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `deepseek/deepseek-v4-flash` (no new real API
+  call this phase — attribution is deterministic timestamp logic; the LIVE
+  interpretation stage is exercised only through the already-run Phase 3 test).
+- **What was generated:**
+  - `AttributionTouch` model in `app/db/models.py` (table `attribution_touches`;
+    UNIQUE on identity_id; first_touch_* immutable once set; last_touch_* tracks
+    strictly-later received_at; source + campaign_id denormalized per touch).
+  - Alembic `0007_attribution_touches` (chains from `0006_leads_routes`;
+    uq_attribution_touches_identity_id; FKs to identities/events; NO redundant
+    index — Postgres auto-creates one for the UNIQUE constraint).
+  - `app/services/attribute.py`: `upsert_attribution()` — create path (first=last
+    = this event), edit path (in-place denormalized update, no new row, no
+    received_at change), update path (strict `<`/`>` only so equal timestamps keep
+    the existing row — deterministic tie-breaking). Does NOT commit; caller owns
+    the transaction.
+  - Wired into `act()` (attribution slotted into the single lead+route commit);
+    `EventIngestResponse.attribution_touch_id`; `_interpret_response` passes it
+    through; GET /api/v1/leads/{id} returns first_touch_at / first_touch_source /
+    last_touch_at / last_touch_source.
+- **What is still a placeholder:** the receipts table is Phase 7 (the TODO stub
+  inside `act()` remains; reconciliation is Phase 7). `escalated` stays
+  computed-on-read for v1.
+- **Human review / changes:** pending Rajat review.
+- **Verification:** `pytest tests/integration/test_attribution.py -v` →
+  **7 passed**. Full suite → **82 passed, 1 skipped** (target 82+1). In-container
+  suite against isolated dsw_test → **82 passed, 1 skipped**. Migration applied to
+  compose dev DB; `\d attribution_touches` shows uq_attribution_touches_identity_id
+  + the 3 FKs and no extra index. Live Docker walkthrough: events arriving A(10:00)
+  → B(12:00) → C(07:00) produced first_touch_at=07:00 (event C, arrived last) and
+  last_touch_at=12:00 (event B) — attribution resolves by received_at, not arrival
+  order; GET /leads/{id} returns the attribution fields.
+
+---

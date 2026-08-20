@@ -253,3 +253,49 @@ class Route(Base):
     )
     sla_deadline: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     escalated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class AttributionTouch(Base):
+    """First and last-touch attribution for a canonical identity (FR-8, Phase 6).
+
+    One row per identity (UNIQUE on identity_id). First-touch is immutable once
+    set: the logic only updates first_touch_* when the incoming event's received_at
+    is STRICTLY EARLIER than the existing first_touch_at — never on equal or later.
+    Last-touch updates when received_at is STRICTLY LATER than the existing
+    last_touch_at (ties do NOT replace: first-received wins on equal timestamps).
+
+    source and campaign_id are denormalized from the originating event so the
+    touch row is self-contained for reporting. An edit (event.is_edit=True) updates
+    the denormalized source/campaign_id on whichever touch references that event.id,
+    without changing any received_at value and without creating a new touch row.
+    """
+
+    __tablename__ = "attribution_touches"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    identity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identities.id"), nullable=False, unique=True
+    )
+    # First touch — immutable once written (only replaced by strictly earlier event)
+    first_touch_event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+    )
+    first_touch_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_touch_source: Mapped[str] = mapped_column(String, nullable=False)
+    first_touch_campaign_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Last touch — updates on each strictly-later event
+    last_touch_event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+    )
+    last_touch_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_touch_source: Mapped[str] = mapped_column(String, nullable=False)
+    last_touch_campaign_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Housekeeping
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

@@ -43,6 +43,7 @@ def _interpret_response(event_id: str, status_flag: str, identity_id: str,
             queue=act_result.get("queue") if act_result else None,
             rule_matched=act_result.get("rule_matched") if act_result else None,
             sla_deadline=act_result.get("sla_deadline") if act_result else None,
+            attribution_touch_id=act_result.get("attribution_touch_id") if act_result else None,
         )
     return EventIngestResponse(
         event_id=event_id, is_edit=(status_flag == "edit"),
@@ -59,6 +60,7 @@ def _interpret_response(event_id: str, status_flag: str, identity_id: str,
         queue=act_result.get("queue") if act_result else None,
         rule_matched=act_result.get("rule_matched") if act_result else None,
         sla_deadline=act_result.get("sla_deadline") if act_result else None,
+        attribution_touch_id=act_result.get("attribution_touch_id") if act_result else None,
     )
 
 

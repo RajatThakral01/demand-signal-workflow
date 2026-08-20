@@ -43,3 +43,6 @@ class EventIngestResponse(BaseModel):
     queue: str | None = None
     rule_matched: str | None = None
     sla_deadline: str | None = None
+    # Attribution state (Phase 6, FR-8). Id of the identity's attribution_touches
+    # row (first/last-touch tracking) written in the same commit as lead+route.
+    attribution_touch_id: str | None = None

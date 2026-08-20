@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Event, Lead, Route, Score
 from app.logging import get_logger
+from app.services.attribute import upsert_attribution
 
 logger = get_logger(__name__)
 
@@ -140,9 +141,11 @@ async def act(
     )
     route = await route_lead(db, lead, decision, label)
     lead.status = "routed"
+    # Flow: attribution (FR-8). Slots into the same transaction as lead+route.
+    touch = await upsert_attribution(db, event, identity_id)
     # Receipt write will go here in Phase 7 — intentional TODO stub:
     # await write_receipt(db, action_type="lead_created"|"lead_updated", ...)
-    await db.commit()  # ONE commit: lead + route together
+    await db.commit()  # ONE commit: lead + route + attribution together
     logger.info(
         "act_complete",
         event_id=str(event.id),
@@ -159,4 +162,5 @@ async def act(
         "rule_matched": route.rule_matched,
         "sla_deadline": route.sla_deadline.isoformat(),
         "decision": decision,
+        "attribution_touch_id": str(touch.id),
     }

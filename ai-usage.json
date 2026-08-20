@@ -298,6 +298,26 @@
       ],
       "human_modified_files": [],
       "verification": "11 new tests pass (5 unit + 6 integration); full suite 75 passed, 1 skipped locally and in-container (target 75+1). Migration applied to compose dev DB; leads shows uq_leads_identity_id + ix_leads_status; routes shows rule_matched NOT NULL + ix_routes_lead_id. Live Docker walkthrough: warm event -> queue sales_default / rule_matched warm_any; re-POST same email -> same lead_id, lead_op=updated, DB count=1 (exactly-once); GET /leads and /leads/{id} return queue/rule_matched/sla_deadline/score/decision/features. Placeholder: receipts write is a TODO stub in act() (Phase 7 adds it in the same commit block); escalated computed-on-read for v1. No new real API cost this phase."
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0011",
+      "phase": "6",
+      "date": "2026-08-20",
+      "phase_name": "Attribution: First/Last-Touch",
+      "summary": "Attribution pipeline (FR-8): AttributionTouch model (attribution_touches table, UNIQUE on identity_id, first_touch immutable once set, last_touch tracks strictly-later received_at, source+campaign_id denormalized per touch); Alembic 0007_attribution_touches (down_revision 0006_leads_routes, uq_attribution_touches_identity_id, FKs to identities/events, no redundant index since Postgres auto-creates one for the UNIQUE constraint); app/services/attribute.py with upsert_attribution (create path first=last=this event; edit path in-place denormalized update, no new row, no received_at change; update path strict < > only so equal timestamps keep the existing row for deterministic tie-breaking; does NOT commit); wired into act() within the single lead+route commit; EventIngestResponse.attribution_touch_id; GET /api/v1/leads/{id} returns first_touch_at/first_touch_source/last_touch_at/last_touch_source.",
+      "files_modified": [
+        "app/db/models.py",
+        "app/db/migrations/versions/0007_attribution_touches.py",
+        "app/services/attribute.py",
+        "app/services/act.py",
+        "app/schemas/responses.py",
+        "app/routers/events.py",
+        "app/routers/leads.py",
+        "tests/integration/test_attribution.py",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "verification": "7 new tests pass (first/last set on first event, multi-event sequence first never changes last tracks, out-of-order delivery resolves by received_at not arrival (C arrives last with earliest received_at becomes first_touch), tie on received_at does not replace, edit updates touch in place not duplicated, attribution_touch_id in ingest response, GET /leads/{id} includes attribution fields); full suite 82 passed, 1 skipped locally and in-container (target 82+1). Migration applied to compose dev DB; \\d attribution_touches shows uq_attribution_touches_identity_id + 3 FKs and no redundant index. Live Docker walkthrough: events A(10:00) -> B(12:00) -> C(07:00) produced first_touch_at=07:00 (C arrived last) and last_touch_at=12:00 (B). Placeholder: receipts table is Phase 7 (TODO stub in act() remains); escalated computed-on-read for v1. No new real API cost this phase."
     }
   ]
 }

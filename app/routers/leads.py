@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Event, Lead, Route, Score
+from app.db.models import AttributionTouch, Event, Lead, Route, Score
 from app.db.session import get_db_session
 
 router = APIRouter(prefix="/api/v1", tags=["leads"])
@@ -107,6 +107,11 @@ async def get_lead(
 
     route = await _latest_route(db, lead.id)
     score = await _latest_score(db, lead.source_event_id)
+    touch = (
+        await db.execute(
+            select(AttributionTouch).where(AttributionTouch.identity_id == lead.identity_id)
+        )
+    ).scalars().first()
 
     return {
         **_lead_dict(lead, route, score),
@@ -115,4 +120,8 @@ async def get_lead(
         "escalated": route.escalated if route else False,
         "score_features": score.features if score else None,
         "policy_version": score.policy_version if score else None,
+        "first_touch_at": touch.first_touch_at.isoformat() if touch else None,
+        "first_touch_source": touch.first_touch_source if touch else None,
+        "last_touch_at": touch.last_touch_at.isoformat() if touch else None,
+        "last_touch_source": touch.last_touch_source if touch else None,
     }
