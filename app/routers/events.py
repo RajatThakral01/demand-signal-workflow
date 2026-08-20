@@ -17,6 +17,7 @@ from app.db.session import get_db_session
 from app.schemas.events import event_adapter
 from app.schemas.responses import EventIngestResponse
 from app.services import ingest
+from app.services.resolve import resolve_identity
 
 router = APIRouter(prefix="/api/v1", tags=["events"])
 
@@ -65,12 +66,27 @@ async def create_event(
 
     event, status_flag = await ingest.create_event(db, model, payload)
 
-    if status_flag == "created":
-        return EventIngestResponse(event_id=str(event.id))
     if status_flag == "duplicate":
         return EventIngestResponse(event_id=str(event.id), duplicate=True)
-    # edit
-    return EventIngestResponse(event_id=str(event.id), is_edit=True)
+
+    # created or edit: run identity resolution (FR-3). A fuzzy/ambiguous match
+    # parks the event in the manual-review queue and the pipeline HALTS here for
+    # this event until a reviewer resolves it (interpret/score/act do NOT run).
+    resolution = await resolve_identity(db, event)
+    if resolution["status"] == "queued_review":
+        return EventIngestResponse(
+            event_id=str(event.id),
+            is_edit=False,
+            status="manual_review",
+            review_id=str(resolution["review_id"]),
+        )
+
+    identity_id = str(resolution["identity_id"])
+    if status_flag == "edit":
+        return EventIngestResponse(event_id=str(event.id), is_edit=True,
+                                   status="linked", identity_id=identity_id)
+    return EventIngestResponse(event_id=str(event.id), is_valid=True,
+                               status="linked", identity_id=identity_id)
 
 
 @router.get("/events/{event_id}", response_model=dict)

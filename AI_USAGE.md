@@ -134,3 +134,41 @@ this file is `ai-usage.json`.
   200.
 
 ---
+
+### Session: Phase 2 — Resolve: Identity Resolution & Manual Review
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0005`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `~deepseek/deepseek-v4-flash-latest`
+- **What was generated:** `identity_policy_v1.json` (rule order, confidence
+  threshold 0.85, fuzzy algorithm choice documented); `identities`,
+  `identity_links`, `manual_review_queue` tables in `app/db/models.py` + Alembic
+  migration `0002_identity_tables`; `app/services/resolve.py` (normalizers,
+  `fuzzy_similarity` via difflib SequenceMatcher, `should_auto_link` boundary
+  gate, `resolve_identity`, `get_pending_reviews`, `resolve_review`);
+  `app/routers/manual_review.py` (GET list + POST resolve); wired resolution into
+  the POST /api/v1/events pipeline (manual_review parks the event, pipeline
+  halts); response schema gains status/review_id/identity_id.
+- **Fuzzy algorithm choice (documented in the policy file):** deterministic
+  stdlib `difflib.SequenceMatcher.ratio()` over lowercase token sequences of the
+  display name — chosen over a third-party fuzzy library to keep the stack
+  minimal and fully deterministic (scoring determinism is a PRD requirement) and
+  because token-set ratio handles name-with-typo cases well at this assessment
+  scale.
+- **What is still a placeholder:** on resolution the pipeline "resumes" by linking
+  the event to the chosen identity, but interpret/score/act do not exist yet
+  (Phases 3–5); `review_resolved` receipt is Phase 6.
+- **Human review / changes:** pending Rajat review.
+- **Verification:** `pytest` against real test Postgres — **50 passed, 0 failed**.
+  Exact email/phone auto-link (and same email reuses one identity); fuzzy
+  above-threshold (identical "Ada Lovelace") auto-links to the same identity;
+  fuzzy below-threshold (shares only "Ada") goes to manual review with a
+  `fuzzy_name_match_below_threshold` reason and NO identity_link created; the
+  "force auto-merge below threshold" invariant is asserted both via the pure
+  `should_auto_link` decision gate and via a real resolution call that confirms no
+  link is written; the 0.849 / 0.85 / 0.851 threshold boundary is unit-tested
+  (0.849→no link, 0.85→link, 0.851→link). HTTP tests confirm
+  GET /api/v1/manual-review?status=pending and POST .../resolve (merge_into /
+  create_new) with 400/404/409 contracts. Alembic migration chain 0001→0002 ran
+  clean on a fresh DB.
+
+---

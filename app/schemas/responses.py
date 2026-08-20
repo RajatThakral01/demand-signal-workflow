@@ -17,3 +17,9 @@ class EventIngestResponse(BaseModel):
     invalid_reason: str | None = None
     duplicate: bool = False
     is_edit: bool = False
+    # Pipeline state set by resolution (Phase 2). ``status`` is ``linked`` or
+    # ``manual_review``; the latter parks the event (PRD Error States) until
+    # resolved via POST /api/v1/manual-review/{id}/resolve.
+    status: str | None = None
+    review_id: str | None = None
+    identity_id: str | None = None

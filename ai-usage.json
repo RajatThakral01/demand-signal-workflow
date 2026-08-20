@@ -142,6 +142,38 @@
       ],
       "human_modified_files": [],
       "verification": "docker compose down -v -> up created both dsw and dsw_test (\\l lists both); POSTed dev event into dev dsw; in-container suite against TEST_DATABASE_URL: 26 passed; afterwards GET dev event still 200 with full body, dev dsw count(*)=1 - test run no longer wipes dev data; final re-run 26 passed in 0.23s with dev event GET still 200"
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0005",
+      "phase": "Phase 2 - Resolve: Identity Resolution & Manual Review",
+      "started_at": "2026-08-20T00:00:00Z",
+      "ended_at": "2026-08-20T00:00:00Z",
+      "provider": "OpenRouter",
+      "model": "~deepseek/deepseek-v4-flash-latest",
+      "version": null,
+      "prompts_or_hashes": [
+        "phase 2 prompt: FR-3, identities/identity_links/manual_review_queue tables, Flow 3, identity policy with fuzzy algorithm choice, manual-review resolve endpoint, exact/phone/fuzzy fixtures, force-merge-rejected test, threshold boundary 0.849/0.85/0.851"
+      ],
+      "notes": [
+        "fuzzy algorithm = deterministic stdlib difflib.SequenceMatcher.ratio over lowercase display-name tokens, documented in identity_policy_v1.json; confidence_threshold 0.85 in the policy file, not hardcoded; below-threshold builds a manual_review_queue row and the event pipeline halts there; on review resolution the event is linked to the chosen identity (interpret/score/act are future phases); debugged: identity.id was None until flush (Python-side uuid default) so links are created after db.flush(); SQLAlchemy python-side uuid default; test fixtures initially used zero-similarity names which correctly hit the create-fresh path, fixed to shared-token ambiguous names that hit the review path"
+      ],
+      "skills_tools": [],
+      "generated_files": [
+        "app/services/resolve.py",
+        "app/routers/manual_review.py",
+        "app/db/models.py",
+        "app/db/migrations/versions/0002_identity_tables.py",
+        "app/schemas/responses.py",
+        "app/routers/events.py",
+        "app/policies/identity_policy_v1.json",
+        "app/main.py",
+        "tests/unit/test_resolve_helpers.py",
+        "tests/integration/test_resolve_identity.py",
+        "tests/integration/test_manual_review_api.py",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "verification": "pytest against real test Postgres: 50 passed, 0 failed. exact email/phone auto-link and email reuse identity; fuzzy identical above-threshold auto-links; fuzzy shared-token below-threshold -> manual_review_queue with reason and no identity_link; force-merge-below-threshold rejected via should_auto_link gate AND via resolution (no link written); boundary 0.849 no / 0.85 yes / 0.851 yes; HTTP GET manual-review?status=pending and POST resolve (merge_into/create_new) with 400/404/409; alembic 0001->0002 clean on fresh DB"
     }
   ]
 }

@@ -1,14 +1,24 @@
 """SQLAlchemy declarative base and ORM models (PRD §6 Database Schema).
 
-Phase 1 ships the ``events`` table (FR-1/FR-2). The unique constraint on
-``dedupe_key`` is declared here so it is enforced at the DB level and picked up
-by Alembic autogenerate; other tables land in later phases.
+Phase 1: ``events`` table. Phase 2: ``identities``, ``identity_links`` and
+``manual_review_queue`` (FR-3, Flow 3). Unique constraints (dedupe_key on
+``events``) are declared here so they are enforced at the DB level and picked up
+by Alembic autogenerate.
 """
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -47,3 +57,67 @@ class Event(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class Identity(Base):
+    """A canonical contact — the ``identity_id`` resolved from demand signals.
+
+    Multi-source and possibly-duplicated signals collapse here (FR-3). Raw PII
+    needed for identity resolution (email/phone/name) lives in this DB table; it
+    is redacted from structured logs (Phase 7).
+    """
+
+    __tablename__ = "identities"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    primary_email: Mapped[str | None] = mapped_column(String, nullable=True)
+    primary_phone: Mapped[str | None] = mapped_column(String, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class IdentityLink(Base):
+    """Associates an event to the identity it resolved to, with the match rule
+    and confidence that produced the link (FR-3)."""
+
+    __tablename__ = "identity_links"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    identity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identities.id"), nullable=False
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+    )
+    match_confidence: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False)
+    match_rule: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class ManualReviewQueue(Base):
+    """Parked events whose identity match is ambiguous — human review required.
+
+    Pipeline halts at resolution for these events until a reviewer resolves the
+    entry (FR-3, Flow 3). Never auto-merged below the configured threshold.
+    """
+
+    __tablename__ = "manual_review_queue"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+    )
+    candidate_identity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True
+    )
+    reason: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution: Mapped[str | None] = mapped_column(String, nullable=True)
