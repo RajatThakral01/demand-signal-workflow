@@ -230,7 +230,8 @@ class Lead(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
-    )
+    )  # onupdate fires when SQLAlchemy tracks attribute changes on the ORM object.
+    # Always set at least one mapped column when updating a lead to ensure this triggers.
 
 
 class Route(Base):

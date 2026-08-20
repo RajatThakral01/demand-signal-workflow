@@ -128,6 +128,10 @@ async def create_event(
     try:
         interpret = await classify_event(db, event)
     except InterpretError:
+        # Pipeline halts: no score, no lead, no route for this event.
+        # Phase 8 dead-letter + replay mechanism will resume the pipeline
+        # from this point when the provider recovers, so the lead is not
+        # permanently lost — it will be created on replay.
         return _interpret_response(str(event.id), status_flag, identity_id,
                                    {"status": "error"})
 
