@@ -8,6 +8,7 @@ with ``score=None``. There is no code path where unknown produces a numeric scor
 """
 
 import json
+import time
 import uuid
 from decimal import Decimal
 from pathlib import Path
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.models import Event, Interpretation, Score
 from app.logging import get_logger
+from app.services.receipts import write_receipt
 
 logger = get_logger(__name__)
 
@@ -123,6 +125,7 @@ async def score_event(
     surrounding pipeline). On an edited resubmission the existing score row is
     updated in place rather than inserting a second (event_id is not unique).
     """
+    start = time.monotonic()
     policy = _load_policy()
     score_value, decision, features = compute_score(
         label=interpretation.label,
@@ -155,11 +158,27 @@ async def score_event(
         )
         row.decision = decision
 
+    await db.flush()  # populate row.id before the receipt references it
     logger.info(
         "score_applied",
-        event_id=str(event.id),
+        input_id=str(event.id),
         decision=decision,
+        reason=f"score computed from label={interpretation.label} under policy v{row.policy_version}",
+        action="scored",
+        result="ok",
+        error=None,
+        timing_ms=round((time.monotonic() - start) * 1000, 2),
         score=score_value,
         policy_version=policy.get("policy_version", settings.scoring_policy_version),
+    )
+    await write_receipt(
+        db,
+        action_type="scored",
+        entity_id=row.id,
+        entity_type="score",
+        event_id=event.id,
+        identity_id=identity_id,
+        metadata={"score": row.score, "decision": row.decision,
+                  "policy_version": row.policy_version},
     )
     return row

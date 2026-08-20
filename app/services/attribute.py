@@ -13,6 +13,7 @@ on the touch(es) that reference the edited event.id. They never create a new tou
 row and never update any received_at value.
 """
 
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -36,6 +37,7 @@ async def upsert_attribution(
     DOES NOT commit — the caller (act()) owns the transaction.
     Returns the AttributionTouch ORM object.
     """
+    start = time.monotonic()
     existing = (
         await db.execute(
             select(AttributionTouch).where(AttributionTouch.identity_id == identity_id)
@@ -53,6 +55,18 @@ async def upsert_attribution(
             existing.last_touch_source = event.source
             existing.last_touch_campaign_id = event.campaign_id
         existing.updated_at = datetime.now(timezone.utc)
+        logger.info(
+            "attribution_updated",
+            input_id=str(event.id),
+            decision="linked",
+            reason="edit updated denormalized source/campaign on the touch row in place",
+            action="attributed_updated",
+            result="ok",
+            error=None,
+            timing_ms=round((time.monotonic() - start) * 1000, 2),
+            identity_id=str(identity_id),
+            is_edit=event.is_edit,
+        )
         return existing
 
     # Create path (no existing row yet).
@@ -86,7 +100,13 @@ async def upsert_attribution(
         else:
             logger.info(
                 "attribution_created",
-                event_id=str(event.id),
+                input_id=str(event.id),
+                decision="linked",
+                reason=f"first touch created for identity (source={event.source})",
+                action="attributed_created",
+                result="ok",
+                error=None,
+                timing_ms=round((time.monotonic() - start) * 1000, 2),
                 identity_id=str(identity_id),
                 first_touch_at=touch.first_touch_at.isoformat(),
             )
@@ -109,8 +129,14 @@ async def upsert_attribution(
     existing.updated_at = datetime.now(timezone.utc)
 
     logger.info(
-        "attribution_updated",
-        event_id=str(event.id),
+"attribution_updated",
+        input_id=str(event.id),
+        decision="linked",
+        reason=f"first={existing.first_touch_at.isoformat()} last={existing.last_touch_at.isoformat()}",
+        action="attributed_updated",
+        result="ok",
+        error=None,
+        timing_ms=round((time.monotonic() - start) * 1000, 2),
         identity_id=str(identity_id),
         is_edit=event.is_edit,
         first_touch_at=existing.first_touch_at.isoformat(),

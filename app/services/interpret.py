@@ -17,6 +17,7 @@ Two hard rules:
 
 import json
 import re
+import time
 from decimal import Decimal
 from typing import Any
 
@@ -33,6 +34,7 @@ from tenacity import (
 from app.config import settings
 from app.db.models import Event, Interpretation
 from app.logging import get_logger
+from app.services.receipts import write_receipt
 
 logger = get_logger(__name__)
 
@@ -243,6 +245,7 @@ async def classify_event(
     or raises ``InterpretError`` (visible error state) when the provider path
     fails after bounded retries.
     """
+    start = time.monotonic()
     text = _extract_text(event, None)
     max_attempts = settings.retry_max_attempts
     n_tokens = _count_tokens(text)
@@ -259,9 +262,31 @@ async def classify_event(
             was_skipped=True,
             token_usage=None,
         )
+        await db.flush()  # populate interpretation.id before the receipt references it
+        await write_receipt(
+            db,
+            action_type="interpreted",
+            entity_id=interpretation.id,
+            entity_type="interpretation",
+            event_id=event.id,
+            metadata={"label": interpretation.label,
+                      "confidence": str(interpretation.confidence),
+                      "was_skipped": interpretation.was_skipped,
+                      "prompt_version": interpretation.prompt_version},
+        )
         await db.commit()
-        logger.info("interpret_skipped_no_llm", event_id=str(event.id), tokens=n_tokens,
-                    label="unknown")
+        logger.info(
+            "interpret_skipped_no_llm",
+            input_id=str(event.id),
+            decision="skipped",
+            reason=f"insufficient_text:{n_tokens}<{settings.interpret_min_tokens}",
+            action="interpreted",
+            result="skipped",
+            error=None,
+            timing_ms=round((time.monotonic() - start) * 1000, 2),
+            tokens=n_tokens,
+            label="unknown",
+        )
         return {"status": "interpreted",
                 "interpretation_id": str(interpretation.id), "label": "unknown",
                 "was_skipped": True}
@@ -286,6 +311,26 @@ async def classify_event(
             with attempt:
                 result = await _call_llm(text)
     except Exception as exc:  # noqa: BLE001 - last provider failure after bounded retries
+        await write_receipt(
+            db,
+            action_type="interpreted",
+            entity_id=event.id,  # no interpretation row exists on the error path
+            entity_type="interpretation",
+            event_id=event.id,
+            metadata={"error": str(exc)},
+            status="error",
+        )
+        await db.commit()
+        logger.error(
+            "interpret_error",
+            input_id=str(event.id),
+            decision="error",
+            reason=f"classification failed after {max_attempts} attempts",
+            action="interpreted",
+            result="error",
+            error=str(exc),
+            timing_ms=round((time.monotonic() - start) * 1000, 2),
+        )
         raise InterpretError(
             f"classification failed after {max_attempts} attempts: {exc}",
             [exc],
@@ -309,9 +354,32 @@ async def classify_event(
         was_skipped=False,
         token_usage=usage,
     )
+    await db.flush()  # populate interpretation.id before the receipt references it
+    await write_receipt(
+        db,
+        action_type="interpreted",
+        entity_id=interpretation.id,
+        entity_type="interpretation",
+        event_id=event.id,
+        metadata={"label": interpretation.label,
+                  "confidence": str(interpretation.confidence),
+                  "was_skipped": interpretation.was_skipped,
+                  "prompt_version": interpretation.prompt_version},
+    )
     await db.commit()
-    logger.info("interpret_llm_ok", event_id=str(event.id), label=label,
-                usage=usage, model=interpretation.model_version)
+    logger.info(
+        "interpret_llm_ok",
+        input_id=str(event.id),
+        decision="ok",
+        reason=f"classified label={label} with confidence={confidence}",
+        action="interpreted",
+        result="ok",
+        error=None,
+        timing_ms=round((time.monotonic() - start) * 1000, 2),
+        label=label,
+        usage=usage,
+        model=interpretation.model_version,
+    )
     return {"status": "interpreted",
             "interpretation_id": str(interpretation.id), "label": label,
             "confidence": str(confidence),

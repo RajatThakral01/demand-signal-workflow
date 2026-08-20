@@ -6,6 +6,8 @@ the event's pipeline. These endpoints are part of the SIMULATED/local workflow,
 not a real third-party integration.
 """
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -13,9 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ManualReviewQueue
 from app.db.session import get_db_session
+from app.logging import get_logger
 from app.services.resolve import get_pending_reviews, resolve_review
 
 router = APIRouter(prefix="/api/v1/manual-review", tags=["manual-review"])
+logger = get_logger(__name__)
 
 
 class ReviewResolveRequest(BaseModel):
@@ -60,6 +64,7 @@ async def resolve_manual_review(
     review or (for merge_into) the target identity is missing; 409 if the review
     was already resolved.
     """
+    start = time.monotonic()
     entry = (
         await db.execute(select(ManualReviewQueue).where(ManualReviewQueue.id == review_id))
     ).scalars().first()
@@ -74,6 +79,19 @@ async def resolve_manual_review(
         raise HTTPException(status_code=400, detail={"error": "invalid_decision", "detail": str(exc)})
     except LookupError as exc:
         raise HTTPException(status_code=404, detail={"error": "not_found", "detail": str(exc)})
+
+    logger.info(
+        "review_resolved",
+        input_id=str(entry.event_id),
+        decision="resolved",
+        reason=f"manual review resolved as {body.decision}",
+        action="review_resolved",
+        result="ok",
+        error=None,
+        timing_ms=round((time.monotonic() - start) * 1000, 2),
+        review_id=str(entry.id),
+        identity_id=str(result["identity_id"]),
+    )
 
     return {"status": result["status"], "review_id": result["review_id"],
             "identity_id": result["identity_id"]}

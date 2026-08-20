@@ -411,3 +411,46 @@ this file is `ai-usage.json`.
   order; GET /leads/{id} returns the attribution fields.
 
 ---
+
+### Session: Phase 7 — Receipts, Reconciliation, Redacted Structured Logging
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0012`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `deepseek/deepseek-v4-flash` (no new real API
+  call this phase — receipts/reconciliation/logging are deterministic; the LIVE
+  interpretation stage is exercised only through the already-run Phase 3 test).
+- **What was generated (7a + 7b):**
+  - 7a: `Receipt` model in `app/db/models.py` (table `receipts`; `meta` mapped to
+    the `metadata` column since `metadata` is a reserved SQLAlchemy declarative
+    attribute; ix_receipts_action_type + ix_receipts_event_id indexes).
+    Alembic `0008_receipts` (down_revision=0007_attribution_touches). New service
+    `app/services/receipts.py` with `write_receipt()` (asserts action_type in
+    VALID_ACTION_TYPES, never commits). Wired receipts into ingest (event_created/
+    event_edited/event_rejected), resolve (identity_created/review_queued), review
+    resolution (review_resolved — placed inside resolve_review, the commit owner,
+    not the router), interpret (interpreted + error), score (scored), act
+    (lead_created/lead_updated + routed + attributed_created/attributed_updated).
+  - 7b: `app/routers/dashboard.py` GET /api/v1/dashboard/reconciliation (7 pairs,
+    no caching). Implemented `_pii_redactor` in `app/logging.py` (SHA-256 first 16
+    hex, `sha256:` prefix; in the processor chain before JSONRenderer). Audited
+    every structlog call in ingest/resolve/interpret/score/act/attribute/manual_review
+    to carry all 7 fields (input_id, decision, reason, action, result, error,
+    timing_ms measured via time.monotonic()). Bound PII fields (email/name) on the
+    identity_created log so redaction demonstrably runs.
+- **What is still a placeholder:** `dead_lettered` is in VALID_ACTION_TYPES but
+  not wired anywhere — Phase 8 will add it. `escalated` is computed-on-read for
+  v1 (no scheduler).
+- **Human review / changes:** pending Rajat review.
+- **Verification:** 5 reconciliation + 2 logging-compliance tests →
+  **7 new passed** (test_reconciliation_variance_zero_on_full_seeded_run is the
+  hard pass/fail: overall_status="ok", total_variance=0, every entry variance=0).
+  Full suite → **89 passed, 1 skipped** (target 89+1; 82 prior + 7 new — the
+  prompt's "91" assumed 7a also added tests, but 7a added none). In-container
+  suite → **89 passed, 1 skipped**. Migration `0008` applied to compose dev DB
+  (`\d receipts` shows ix_receipts_action_type + ix_receipts_event_id).
+  Reconciliation body on seeded run: `overall_status: ok`, `total_variance: 0`,
+  all 7 entity pairs `variance: 0`. PII redaction verified: raw email absent from
+  captured logs, `sha256:...` form present (e.g.
+  `sha256:bca56d437cde4164`). Sample 7-field log line (routed): input_id,
+  decision=hot, reason, action=routed, result=ok, error=null, timing_ms.
+
+---

@@ -8,21 +8,33 @@ commits to carrying are: `input_id`, `decision`, `reason`, `action`, `result`,
 arbitrary keyvals through the JSON renderer untouched.
 """
 
+import hashlib
 import logging
 import sys
 from typing import Any
 
 import structlog
 
+_PII_FIELDS = frozenset({
+    "email", "phone", "primary_email", "primary_phone",
+    "display_name", "name",
+})
+
 
 def _pii_redactor(logger: Any, method_name: str, event_dict: dict) -> dict:
-    """Placeholder for Phase 7's PII redaction.
+    """Hash any PII field values before they reach the renderer.
 
-    Phase 0 does not emit PII yet, so this is intentionally a no-op *on purpose*,
-    not an oversight. Phase 7 will mask/hash `email` / `phone` / raw name values
-    here before they reach the JSON renderer, per PRD §5 Security and FR privacy
-    acceptance. Keeping the hook present now avoids a retrofit later.
+    Raw PII remains in the DB for identity resolution, but MUST NOT appear
+    in structured log output or evidence exports (FR-10).
+    Fields listed in _PII_FIELDS are replaced with their SHA-256 hash
+    (first 16 hex chars, prefixed 'sha256:') so logs remain correlatable
+    without exposing raw values.
     """
+    for field in _PII_FIELDS:
+        raw = event_dict.get(field)
+        if isinstance(raw, str) and raw:
+            hashed = hashlib.sha256(raw.encode()).hexdigest()[:16]
+            event_dict[field] = f"sha256:{hashed}"
     return event_dict
 
 

@@ -11,6 +11,7 @@ that can auto-merge a below-threshold match.
 import difflib
 import json
 import re
+import time
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.db.models import Identity, IdentityLink, ManualReviewQueue
 from app.logging import get_logger
+from app.services.receipts import write_receipt
 
 logger = get_logger(__name__)
 
@@ -128,9 +130,10 @@ async def _find_fuzzy_candidate(db: AsyncSession, name: str) -> Identity | None:
     return best
 
 
-def _queue_review(
+async def _queue_review(
     db: AsyncSession, event_id: Any, candidate_identity_id: Any, reason: str, score: Decimal
 ) -> ManualReviewQueue:
+    start = time.monotonic()
     entry = ManualReviewQueue(
         event_id=event_id,
         candidate_identity_id=candidate_identity_id,
@@ -138,8 +141,27 @@ def _queue_review(
         status="pending",
     )
     db.add(entry)
-    logger.info("identity_marked_for_review", event_id=str(event_id), reason=reason,
-                confidence=str(score))
+    await db.flush()  # populate entry.id before the receipt references it
+    await write_receipt(
+        db,
+        action_type="review_queued",
+        entity_id=entry.id,
+        entity_type="manual_review",
+        event_id=event_id,
+        metadata={"reason": reason},
+    )
+    logger.info(
+        "identity_marked_for_review",
+        input_id=str(event_id),
+        decision="queued_review",
+        reason=reason,
+        action="review_queued",
+        result="skipped",
+        error=None,
+        timing_ms=round((time.monotonic() - start) * 1000, 2),
+        event_id=str(event_id),
+        confidence=str(score),
+    )
     return entry
 
 
@@ -158,6 +180,7 @@ async def _link_via_exact(
     loser hits the DB-level partial unique index (IntegrityError), rolls back,
     re-SELECTs the winner's row and links to it — mirroring ingest.create_event.
     """
+    start = time.monotonic()
     display_name = (event.identity_fields or {}).get("name")
     # The event row is already committed by the ingest step, so its id is stable
     # and safe to hold across a rollback (rollback would otherwise expire the ORM
@@ -167,6 +190,7 @@ async def _link_via_exact(
     if identity is None:
         identity = create(db, display_name)
         db.add(identity)
+        created_new = True
         try:
             await db.flush()  # populate identity.id; may raise if we lost a race
         except IntegrityError:
@@ -174,6 +198,31 @@ async def _link_via_exact(
             identity = await find(db, value)  # fresh, non-expired row from the winner
             if identity is None:
                 raise
+            created_new = False  # the winner already receipted its own creation
+        if created_new:
+            await write_receipt(
+                db,
+                action_type="identity_created",
+                entity_id=identity.id,
+                entity_type="identity",
+                event_id=event_id,
+                identity_id=identity.id,
+                metadata={"match_rule": match_rule, "match_confidence": "1.00"},
+            )
+            logger.info(
+                "identity_created",
+                input_id=str(event_id),
+                decision="linked",
+                reason=f"new identity created via exact {match_rule} match",
+                action="identity_created",
+                result="ok",
+                error=None,
+                timing_ms=round((time.monotonic() - start) * 1000, 2),
+                identity_id=str(identity.id),
+                match_rule=match_rule,
+                email=identity.primary_email,  # PII — redacted by _pii_redactor
+                name=identity.display_name,     # PII — redacted by _pii_redactor
+            )
     link = IdentityLink(
         identity_id=identity.id, event_id=event_id,
         match_confidence=Decimal("1.00"), match_rule=match_rule,
@@ -193,6 +242,7 @@ async def resolve_identity(db: AsyncSession, event: Any) -> dict:
     On the ``queued_review`` outcome the pipeline HALTS for this event
     (interpret/score/act must not run) until a reviewer resolves the entry.
     """
+    start = time.monotonic()
     policy = _load_policy()
     threshold = Decimal(str(policy["confidence_threshold"]))
     fields: dict = event.identity_fields or {}
@@ -223,6 +273,28 @@ async def resolve_identity(db: AsyncSession, event: Any) -> dict:
             identity = Identity(display_name=name)
             db.add(identity)
             await db.flush()  # populate identity.id before linking
+            await write_receipt(
+                db,
+                action_type="identity_created",
+                entity_id=identity.id,
+                entity_type="identity",
+                event_id=event.id,
+                identity_id=identity.id,
+                metadata={"match_rule": "fuzzy_name_company", "match_confidence": "1.00"},
+            )
+            logger.info(
+                "identity_created",
+                input_id=str(event.id),
+                decision="linked",
+                reason="new identity created via fuzzy_name_company (no candidates)",
+                action="identity_created",
+                result="ok",
+                error=None,
+                timing_ms=round((time.monotonic() - start) * 1000, 2),
+                identity_id=str(identity.id),
+                match_rule="fuzzy_name_company",
+                name=identity.display_name,  # PII — redacted by _pii_redactor
+            )
             link = IdentityLink(
                 identity_id=identity.id, event_id=event.id,
                 match_confidence=Decimal("1.00"), match_rule="fuzzy_name_company",
@@ -244,7 +316,7 @@ async def resolve_identity(db: AsyncSession, event: Any) -> dict:
                     "rule": "fuzzy_name_company", "confidence": score}
         # Below threshold -> manual review, NEVER auto-merge.
         reason = f"fuzzy_name_match_below_threshold:{score}"
-        entry = _queue_review(db, event.id, candidate.id, reason, score)
+        entry = await _queue_review(db, event.id, candidate.id, reason, score)
         await db.commit()
         await db.refresh(entry)
         return {"status": "queued_review", "review_id": entry.id,
@@ -252,7 +324,7 @@ async def resolve_identity(db: AsyncSession, event: Any) -> dict:
 
     # No identity fields at all -> cannot resolve.
     reason = "no_identity_fields"
-    entry = _queue_review(db, event.id, None, reason, Decimal("0"))
+    entry = await _queue_review(db, event.id, None, reason, Decimal("0"))
     await db.commit()
     await db.refresh(entry)
     return {"status": "queued_review", "review_id": entry.id,
@@ -310,6 +382,15 @@ async def resolve_review(
             match_confidence=Decimal("1.00"), match_rule="manual_review_resolve",
         )
         db.add(link)
+        await write_receipt(
+            db,
+            action_type="review_resolved",
+            entity_id=entry.id,
+            entity_type="manual_review",
+            event_id=entry.event_id,
+            identity_id=target.id,
+            metadata={"resolution": decision, "review_id": str(entry.id)},
+        )
         await db.commit()
         return {"status": "resolved", "identity_id": target.id, "review_id": entry.id}
 
@@ -326,5 +407,14 @@ async def resolve_review(
         match_confidence=Decimal("1.00"), match_rule="manual_review_resolve",
     )
     db.add(link)
+    await write_receipt(
+        db,
+        action_type="review_resolved",
+        entity_id=entry.id,
+        entity_type="manual_review",
+        event_id=entry.event_id,
+        identity_id=new_identity.id,
+        metadata={"resolution": decision, "review_id": str(entry.id)},
+    )
     await db.commit()
     return {"status": "resolved", "identity_id": new_identity.id, "review_id": entry.id}

@@ -8,6 +8,7 @@ without requiring a transaction restructure.
 """
 
 import json
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Event, Lead, Route, Score
 from app.logging import get_logger
 from app.services.attribute import upsert_attribution
+from app.services.receipts import write_receipt
 
 logger = get_logger(__name__)
 
@@ -103,6 +105,7 @@ async def create_or_update_lead(
 
 async def route_lead(db: AsyncSession, lead: Lead, decision: str, label: str) -> Route:
     """Compute and persist a routing decision for a lead (no commit)."""
+    start = time.monotonic()
     rules = _load_routing_rules()
     queue, rule_matched, sla_hours = apply_routing_rule(decision, label, rules)
     now = datetime.now(timezone.utc)
@@ -117,6 +120,13 @@ async def route_lead(db: AsyncSession, lead: Lead, decision: str, label: str) ->
     db.add(route)
     logger.info(
         "lead_routed",
+        input_id=str(lead.id),
+        decision=decision,
+        reason=f"routed to queue={queue} via rule={rule_matched} (sla {sla_hours}h)",
+        action="routed",
+        result="ok",
+        error=None,
+        timing_ms=round((time.monotonic() - start) * 1000, 2),
         lead_id=str(lead.id),
         queue=queue,
         rule_matched=rule_matched,
@@ -132,6 +142,7 @@ async def act(
     score_row: Score | None,
 ) -> dict:
     """Public entrypoint: create/update lead + route, single commit."""
+    start = time.monotonic()
     lead, lead_op = await create_or_update_lead(db, event, identity_id, score_row)
     decision = score_row.decision if score_row else "needs_review"
     label = (
@@ -143,16 +154,48 @@ async def act(
     lead.status = "routed"
     # Flow: attribution (FR-8). Slots into the same transaction as lead+route.
     touch = await upsert_attribution(db, event, identity_id)
-    # Receipt write will go here in Phase 7 — intentional TODO stub:
-    # await write_receipt(db, action_type="lead_created"|"lead_updated", ...)
-    await db.commit()  # ONE commit: lead + route + attribution together
+
+    await db.flush()  # populate route.id + touch.id before the receipts reference them
+
+    # Lead receipt (FR-9)
+    await write_receipt(
+        db,
+        action_type="lead_created" if lead_op == "created" else "lead_updated",
+        entity_id=lead.id, entity_type="lead",
+        event_id=event.id, identity_id=identity_id,
+        metadata={"lead_op": lead_op, "decision": decision})
+
+    # Route receipt
+    await write_receipt(
+        db,
+        action_type="routed",
+        entity_id=route.id, entity_type="route",
+        event_id=event.id, identity_id=identity_id,
+        metadata={"queue": route.queue, "rule_matched": route.rule_matched,
+                  "sla_deadline": route.sla_deadline.isoformat()})
+
+    # Attribution receipt
+    await write_receipt(
+        db,
+        action_type="attributed_created" if lead_op == "created" else "attributed_updated",
+        entity_id=touch.id, entity_type="attribution_touch",
+        event_id=event.id, identity_id=identity_id,
+        metadata={"first_touch_at": touch.first_touch_at.isoformat(),
+                  "last_touch_at": touch.last_touch_at.isoformat()})
+
+    await db.commit()  # ONE commit: lead + route + attribution + three receipts
     logger.info(
         "act_complete",
-        event_id=str(event.id),
+        input_id=str(event.id),
+        decision=decision,
+        reason=f"lead {lead_op} routed to {route.queue} (rule {route.rule_matched}) with attribution",
+        action="lead_created" if lead_op == "created" else "lead_updated",
+        result="ok",
+        error=None,
+        timing_ms=round((time.monotonic() - start) * 1000, 2),
         lead_id=str(lead.id),
         lead_op=lead_op,
         queue=route.queue,
-        decision=decision,
     )
     return {
         "lead_id": str(lead.id),

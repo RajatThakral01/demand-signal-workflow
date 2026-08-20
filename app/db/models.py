@@ -299,3 +299,40 @@ class AttributionTouch(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class Receipt(Base):
+    """Audit trail row written for every mutating pipeline action (FR-9, Phase 7).
+
+    One row per action. action_type is an enum-like string (see VALID_ACTION_TYPES
+    in app/services/receipts.py). entity_id + entity_type identify the primary
+    object mutated. event_id and identity_id are set when the action relates to a
+    known event or identity (used by the reconciliation endpoint). metadata stores
+    action-specific details for audit/debugging. status is 'ok', 'error', or
+    'skipped'. NOT committed inside write_receipt — the caller owns the transaction.
+    """
+
+    __tablename__ = "receipts"
+
+    __table_args__ = (
+        Index("ix_receipts_action_type", "action_type"),
+        Index("ix_receipts_event_id", "event_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    action_type: Mapped[str] = mapped_column(String, nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)
+    event_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=True
+    )
+    identity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True
+    )
+    meta: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="ok")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

@@ -318,6 +318,33 @@
       ],
       "human_modified_files": [],
       "verification": "7 new tests pass (first/last set on first event, multi-event sequence first never changes last tracks, out-of-order delivery resolves by received_at not arrival (C arrives last with earliest received_at becomes first_touch), tie on received_at does not replace, edit updates touch in place not duplicated, attribution_touch_id in ingest response, GET /leads/{id} includes attribution fields); full suite 82 passed, 1 skipped locally and in-container (target 82+1). Migration applied to compose dev DB; \\d attribution_touches shows uq_attribution_touches_identity_id + 3 FKs and no redundant index. Live Docker walkthrough: events A(10:00) -> B(12:00) -> C(07:00) produced first_touch_at=07:00 (C arrived last) and last_touch_at=12:00 (B). Placeholder: receipts table is Phase 7 (TODO stub in act() remains); escalated computed-on-read for v1. No new real API cost this phase."
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0012",
+      "phase": "7",
+      "date": "2026-08-20",
+      "phase_name": "Receipts, Reconciliation, Redacted Structured Logging",
+      "summary": "7a: Receipt model (receipts table; meta mapped to metadata column since metadata is a reserved SQLAlchemy attribute; ix_receipts_action_type + ix_receipts_event_id); Alembic 0008_receipts (down_revision 0007_attribution_touches); app/services/receipts.py write_receipt (asserts VALID_ACTION_TYPES, never commits); wiring into ingest/resolve/manual_review-resolve/interpret/score/act for every mutating action. 7b: app/routers/dashboard.py GET /api/v1/dashboard/reconciliation (7 entity/action pairs, no caching); implemented _pii_redactor in app/logging.py (SHA-256 first 16 hex sha256: prefix before JSONRenderer); audited every structlog call across ingest/resolve/interpret/score/act/attribute/manual_review to carry all 7 fields (input_id, decision, reason, action, result, error, timing_ms via time.monotonic()); bound email/name on identity_created log so PII redaction demonstrably runs.",
+      "files_modified": [
+        "app/db/models.py",
+        "app/db/migrations/versions/0008_receipts.py",
+        "app/services/receipts.py",
+        "app/services/ingest.py",
+        "app/services/resolve.py",
+        "app/routers/manual_review.py",
+        "app/services/interpret.py",
+        "app/services/score.py",
+        "app/services/act.py",
+        "app/services/attribute.py",
+        "app/routers/dashboard.py",
+        "app/main.py",
+        "app/logging.py",
+        "tests/integration/test_receipts_reconciliation.py",
+        "tests/integration/test_logging_compliance.py",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "verification": "7 new tests pass (5 reconciliation + 2 logging compliance; test_reconciliation_variance_zero_on_full_seeded_run is hard pass/fail: overall_status=ok total_variance=0 every entry variance=0); full suite 89 passed, 1 skipped locally and in-container (target 89+1; 82 prior + 7 new - prompt's 91 assumed 7a tests). Migration 0008 applied; \\d receipts shows ix_receipts_action_type + ix_receipts_event_id. Reconciliation on seeded run: ok / variance 0 / 7 pairs. PII redaction verified: raw email absent, sha256:... form present. Sample 7-field log (routed): input_id/decision=hot/reason/action=routed/result=ok/error=null/timing_ms. Placeholder: dead_lettered in VALID_ACTION_TYPES not wired (Phase 8); escalated computed-on-read. No new real API cost."
     }
   ]
 }

@@ -8,6 +8,7 @@ constraint); ``payload_hash`` is a hash of the canonicalized body (compared on a
 
 import hashlib
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,6 +17,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Event
+from app.logging import get_logger
+from app.services.receipts import write_receipt
+
+logger = get_logger(__name__)
 
 
 def canonical_json(obj: Any) -> str:
@@ -70,6 +75,7 @@ async def persist_invalid_event(
     from. ``dedupe_key`` may be None if the source/external id are absent; the
     UNIQUE(NOT-NULL-excluding) constraint still applies to any row that has one.
     """
+    start = time.monotonic()
     source = payload.get("source")
     external_event_id = payload.get("external_event_id")
     received_at = payload.get("received_at")
@@ -97,6 +103,27 @@ async def persist_invalid_event(
         received_at=received_at,
     )
     db.add(event)
+    await db.flush()  # populate event.id before the receipt references it
+    await write_receipt(
+        db,
+        action_type="event_rejected",
+        entity_id=event.id,
+        entity_type="event",
+        event_id=event.id,
+        metadata={"invalid_reason": invalid_reason},
+        status="error",
+    )
+    logger.info(
+        "event_rejected",
+        input_id=str(event.id),
+        decision="rejected",
+        reason=f"schema-invalid payload rejected: {invalid_reason}",
+        action="event_rejected",
+        result="error",
+        error=None,
+        timing_ms=round((time.monotonic() - start) * 1000, 2),
+        invalid_reason=invalid_reason,
+    )
     await db.commit()
     await db.refresh(event)
     return event
@@ -116,6 +143,7 @@ async def create_event(db: AsyncSession, model: Any, payload: dict) -> tuple[Eve
     one INSERT commits; the loser raises ``IntegrityError`` here and is re-read as
     an exact duplicate.
     """
+    start = time.monotonic()
     dedupe_key = compute_dedupe_key(model.source, model.external_event_id)
     payload_hash = compute_payload_hash(payload)
 
@@ -134,10 +162,28 @@ async def create_event(db: AsyncSession, model: Any, payload: dict) -> tuple[Eve
         existing.campaign_id = model.campaign_id
         existing.consent = model.consent
         existing.received_at = model.received_at
+        await write_receipt(
+            db,
+            action_type="event_edited",
+            entity_id=existing.id,
+            entity_type="event",
+            event_id=existing.id,
+            metadata={"source": existing.source,
+                      "payload_hash": existing.payload_hash},
+            status="ok",
+        )
+        logger.info(
+            "event_edited",
+            input_id=str(existing.id),
+            decision="edit",
+            reason=f"same dedupe_key, different payload_hash: edit detected (source={existing.source})",
+            action="event_edited",
+            result="ok",
+            error=None,
+            timing_ms=round((time.monotonic() - start) * 1000, 2),
+        )
         await db.commit()
         await db.refresh(existing)
-        # TODO(Phase 6): write an `event_edited` receipt (receipts table is not
-        # built until Phase 6). Detected + row updated correctly for now.
         return existing, "edit"
 
     event = Event(
@@ -155,6 +201,27 @@ async def create_event(db: AsyncSession, model: Any, payload: dict) -> tuple[Eve
     )
     db.add(event)
     try:
+        await db.flush()  # populate event.id before the receipt references it
+        await write_receipt(
+            db,
+            action_type="event_created",
+            entity_id=event.id,
+            entity_type="event",
+            event_id=event.id,
+            metadata={"source": event.source,
+                      "schema_version": event.schema_version},
+            status="ok",
+        )
+        logger.info(
+            "event_created",
+            input_id=str(event.id),
+            decision="created",
+            reason=f"new event persisted from source={event.source}",
+            action="event_created",
+            result="ok",
+            error=None,
+            timing_ms=round((time.monotonic() - start) * 1000, 2),
+        )
         await db.commit()
     except IntegrityError:
         # Lost a concurrent insert race — DB constraint won. Treat as duplicate.
