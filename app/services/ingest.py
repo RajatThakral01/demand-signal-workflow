@@ -1,0 +1,167 @@
+"""Ingest service — hashing, dedupe and edit detection (FR-1 / FR-2).
+
+Deterministic hashes keep dedupe reproducible: ``dedupe_key`` is a hash of
+``source + external_event_id`` (stable per submission, drives the DB UNIQUE
+constraint); ``payload_hash`` is a hash of the canonicalized body (compared on a
+``dedupe_key`` hit to tell a true duplicate from an edit).
+"""
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import Event
+
+
+def canonical_json(obj: Any) -> str:
+    """Deterministic JSON representation (sorted keys, no whitespace).
+
+    Two semantically identical payloads (whatever field order the connector
+    emitted) hash to the same ``payload_hash`` (FR-2).
+    """
+
+    def _sort(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: _sort(value[k]) for k in sorted(value)}
+        if isinstance(value, list):
+            return [_sort(item) for item in value]
+        return value
+
+    return json.dumps(_sort(obj), separators=(",", ":"), default=str)
+
+
+def compute_payload_hash(payload: dict) -> str:
+    """Hash of the canonicalized raw body (FR-2)."""
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def compute_dedupe_key(source: str | None, external_event_id: str | None) -> str | None:
+    """Deterministic dedupe key = hash(source + external_event_id).
+
+    Returns ``None`` when either input is missing (a schema-invalid event may
+    arrive without a stable key; such rows simply can't participate in dedupe and
+    Postgres' UNIQUE constraint ignores NULLs).
+    """
+    if not source or not external_event_id:
+        return None
+    return hashlib.sha256(f"{source}|{external_event_id}".encode("utf-8")).hexdigest()
+
+
+def build_identity_fields(model: Any) -> dict:
+    """Project the identity-relevant fields (email/phone/name) as submitted."""
+    return {
+        key: value
+        for key in ("email", "phone", "name", "display_name", "handle", "company")
+        if (value := getattr(model, key, None)) is not None
+    }
+
+
+async def persist_invalid_event(
+    db: AsyncSession, payload: dict, invalid_reason: str
+) -> Event:
+    """Persist an accepted-but-schema-invalid event (FR-1: never dropped).
+
+    Uses the raw payload dict because no valid model exists to project fields
+    from. ``dedupe_key`` may be None if the source/external id are absent; the
+    UNIQUE(NOT-NULL-excluding) constraint still applies to any row that has one.
+    """
+    source = payload.get("source")
+    external_event_id = payload.get("external_event_id")
+    received_at = payload.get("received_at")
+    if isinstance(received_at, str):
+        try:
+            received_at = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
+        except ValueError:
+            received_at = None
+    if received_at is None:
+        # Schema-invalid rows carry no trustworthy timestamp; still needs a
+        # value for the NOT NULL column — record the moment of ingestion.
+        received_at = datetime.now(timezone.utc)
+    event = Event(
+        external_event_id=external_event_id or "",
+        source=source or "unknown",
+        dedupe_key=compute_dedupe_key(source, external_event_id),
+        payload_hash=compute_payload_hash(payload),
+        is_valid=False,
+        invalid_reason=invalid_reason,
+        schema_version=str(payload.get("schema_version", "1.0")),
+        campaign_id=payload.get("campaign_id"),
+        identity_fields=None,
+        raw_payload=payload,
+        consent=bool(payload.get("consent", False)),
+        received_at=received_at,
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+    return event
+
+
+async def find_event_by_dedupe_key(db: AsyncSession, dedupe_key: str) -> Event | None:
+    stmt = select(Event).where(Event.dedupe_key == dedupe_key)
+    return (await db.execute(stmt)).scalars().first()
+
+
+async def create_event(db: AsyncSession, model: Any, payload: dict) -> tuple[Event, str]:
+    """Persist a valid event, returning ``(event, status)`` where status is one of
+    ``created`` / ``duplicate`` / ``edit`` (FR-2).
+
+    The DB UNIQUE constraint on ``dedupe_key`` is the race-condition guard: two
+    concurrent inserts of the same event both look absent at the SELECT, but only
+    one INSERT commits; the loser raises ``IntegrityError`` here and is re-read as
+    an exact duplicate.
+    """
+    dedupe_key = compute_dedupe_key(model.source, model.external_event_id)
+    payload_hash = compute_payload_hash(payload)
+
+    existing = None
+    if dedupe_key:
+        existing = await find_event_by_dedupe_key(db, dedupe_key)
+
+    if existing is not None:
+        if existing.payload_hash == payload_hash:
+            return existing, "duplicate"
+        # Different payload_hash on the same dedupe_key => an edit (FR-2).
+        existing.is_edit = True
+        existing.raw_payload = payload
+        existing.identity_fields = build_identity_fields(model)
+        existing.schema_version = model.schema_version
+        existing.campaign_id = model.campaign_id
+        existing.consent = model.consent
+        existing.received_at = model.received_at
+        await db.commit()
+        await db.refresh(existing)
+        # TODO(Phase 6): write an `event_edited` receipt (receipts table is not
+        # built until Phase 6). Detected + row updated correctly for now.
+        return existing, "edit"
+
+    event = Event(
+        external_event_id=model.external_event_id,
+        source=model.source,
+        dedupe_key=dedupe_key,
+        payload_hash=payload_hash,
+        is_valid=True,
+        schema_version=model.schema_version,
+        campaign_id=model.campaign_id,
+        identity_fields=build_identity_fields(model),
+        raw_payload=payload,
+        consent=model.consent,
+        received_at=model.received_at,
+    )
+    db.add(event)
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Lost a concurrent insert race — DB constraint won. Treat as duplicate.
+        await db.rollback()
+        committed = await find_event_by_dedupe_key(db, dedupe_key)
+        if committed is None:
+            raise
+        return committed, "duplicate"
+    await db.refresh(event)
+    return event, "created"

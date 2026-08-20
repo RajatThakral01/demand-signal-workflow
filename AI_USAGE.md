@@ -53,5 +53,36 @@ this file is `ai-usage.json`.
 
 ---
 
+### Session: Phase 1 — Ingest: Schema, Validation, Dedupe & Edit Detection
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0002`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `~deepseek/deepseek-v4-flash-latest`
+- **What was generated:** `app/schemas/events.py` (discriminated-union schemas for
+  `web_form` / `social_mention` / `email_engagement`, `schema_version`, `EventIn`
+  Annotated union + `event_adapter` TypeAdapter); `app/schemas/responses.py`
+  (`EventIngestResponse`); `events` table in `app/db/models.py` (UNIQUE on
+  `dedupe_key`); Alembic migration `0001_events`; `app/services/ingest.py`
+  (canonicalization + `compute_dedupe_key` / `compute_payload_hash`, invalid-event
+  persistence, create/duplicate/edit logic with DB-constraint race handling);
+  `app/routers/events.py` (POST/GET `/api/v1/events`); `get_db_session` dependency
+  in `app/db/session.py`; mounting in `app/main.py`; `pytest.ini`; unit +
+  integration tests; `email-validator` added to requirements.
+- **What is still a placeholder:** `event_edited` receipt is a TODO (receipts
+  table is Phase 6 — edit detected + row updated now); no pipeline beyond ingest
+  (resolve/interpret/score/act are later phases).
+- **Human review / changes:** pending Rajat review this session.
+- **Verification:** `pytest` against a real test Postgres (`dsw_test` on the local
+  socket) — **26 passed, 0 failed**. Malformed JSON→400 not persisted; valid-JSON-
+  fails-schema→200 `is_valid=false` persisted; exact duplicate→no-op with
+  `duplicate:true`, one events row; edit→`is_edit:true` row updated, no second
+  row; concurrency test (`asyncio.gather` of two simultaneous create_event calls)
+  yields exactly one row with statuses `["created","duplicate"]`; a direct-insert
+  test proves the DB UNIQUE constraint (raw INSERT of a second row with the same
+  `dedupe_key` raises `IntegrityError`) is what enforces dedupe, independent of
+  app logic. Alembic `upgrade head` ran cleanly and `\d events` confirms
+  `events_dedupe_key_key UNIQUE CONSTRAINT`.
+
+---
+
 *Model/provider note: model identifier is `~deepseek/deepseek-v4-flash-latest`
 served via OpenRouter. Exact pinned model string recorded in each session entry.*

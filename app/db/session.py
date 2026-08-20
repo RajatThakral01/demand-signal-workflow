@@ -1,6 +1,6 @@
 """Async SQLAlchemy engine / session factory (asyncpg driver)."""
 
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -46,3 +46,9 @@ async def check_db() -> bool:
         return True
     except Exception:
         return False
+
+
+async def get_db_session() -> AsyncIterator[AsyncSession]:
+    """FastAPI dependency yielding a scoped async session and ensuring rollback/close."""
+    async with get_session_factory()() as session:
+        yield session

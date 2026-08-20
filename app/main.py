@@ -10,6 +10,7 @@ from fastapi import FastAPI, Response, status
 from app.config import settings
 from app.db.session import check_db
 from app.logging import configure_logging, get_logger
+from app.routers.events import router as events_router
 
 configure_logging(settings.log_level)
 logger = get_logger(__name__)
@@ -21,8 +22,10 @@ app = FastAPI(
         "(internal fixture generators). Classification: LIVE call via OpenRouter "
         "(Phase 3)."
     ),
-    version="0.1.0",
+    version="0.2.0",
 )
+
+app.include_router(events_router)
 
 
 @app.get("/health", summary="Liveness + DB connectivity probe")

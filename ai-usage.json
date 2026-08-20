@@ -57,6 +57,40 @@
       ],
       "human_modified_files": [],
       "verification": "docker compose up succeeded from clean state; GET /health returned 200 {'status':'ok','db':'ok'} via real SELECT 1; confirmed degraded path 503 {'status':'degraded'} when db stopped; confirmed structlog emits single JSON line carrying input_id/decision/reason/action/result/error/timing_ms"
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0002",
+      "phase": "Phase 1 - Ingest: Schema, Validation, Dedupe & Edit Detection",
+      "started_at": "2026-08-20T00:00:00Z",
+      "ended_at": "2026-08-20T00:00:00Z",
+      "provider": "OpenRouter",
+      "model": "~deepseek/deepseek-v4-flash-latest",
+      "version": null,
+      "prompts_or_hashes": [
+        "phase 1 prompt: FR-1/FR-2, events table + UNIQUE(dedupe_key) migration, POST/GET /api/v1/events with malformed-400 / schema-invalid-200 / dedupe / edit branches, unit + concurrency + DB-constraint tests"
+      ],
+      "notes": [
+        "edit path leaves an event_edited receipt TODO (receipts table is Phase 6); SIMULATED connector label kept in events router docstring and app/main.py; events.dedupe_key declared nullable so schema-invalid events lacking source/external_event_id don't break UNIQUE (NULLs ignored by Postgres)"
+      ],
+      "skills_tools": [],
+      "generated_files": [
+        "app/schemas/events.py",
+        "app/schemas/responses.py",
+        "app/db/models.py",
+        "app/db/migrations/versions/0001_events.py",
+        "app/services/ingest.py",
+        "app/routers/events.py",
+        "app/db/session.py",
+        "app/main.py",
+        "pytest.ini",
+        "tests/conftest.py",
+        "tests/unit/test_events_schemas.py",
+        "tests/unit/test_hashing.py",
+        "tests/integration/test_ingest_events.py",
+        "requirements.txt"
+      ],
+      "human_modified_files": [],
+      "verification": "pytest against real test Postgres (dsw_test on local socket): 26 passed, 0 failed. malformed→400 not persisted; schema-invalid→200 is_valid=false persisted; exact duplicate→duplicate:true one row; edit→is_edit:true updated no 2nd row; concurrency asyncio.gather → ['created','duplicate'] one row; direct-insert of same dedupe_key raises IntegrityError proving DB (not app) enforcement; alembic upgrade head + \\d events show events_dedupe_key_key UNIQUE CONSTRAINT"
     }
   ]
 }
