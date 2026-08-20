@@ -6,13 +6,13 @@ No real social/email/webhook integration is ever called (PRD §2 / Appendix).
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Event
+from app.errors import MalformedJSONError
 from app.db.session import get_db_session
 from app.schemas.events import event_adapter
 from app.schemas.responses import EventIngestResponse
@@ -40,10 +40,7 @@ async def create_event(
         raw = await request.body()
         payload = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"error": "malformed_json", "detail": "request body is not valid JSON"},
-        )
+        raise MalformedJSONError()
 
     if not isinstance(payload, dict):
         event = await ingest.persist_invalid_event(

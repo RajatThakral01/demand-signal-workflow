@@ -5,10 +5,12 @@ a real `SELECT 1` against Postgres (not a hardcoded response). Feature routers
 (events, leads, manual-review, dashboard, admin) mount in later phases.
 """
 
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Request, Response, status
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.db.session import check_db
+from app.errors import MalformedJSONError
 from app.logging import configure_logging, get_logger
 from app.routers.events import router as events_router
 
@@ -24,6 +26,22 @@ app = FastAPI(
     ),
     version="0.2.0",
 )
+
+
+@app.exception_handler(MalformedJSONError)
+async def _malformed_json_handler(request: Request, exc: MalformedJSONError) -> JSONResponse:
+    """Centralized handler producing the PRD's flat error envelope.
+
+    Returning a ``JSONResponse`` with a flat ``content`` dict — rather than
+    raising an ``HTTPException`` (which FastAPI wraps in ``{"detail": ...}``) or
+    letting the 200 ``response_model`` serialize the body — is what keeps the
+    response exactly ``400 {"error": "malformed_json"}``.
+    """
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={"error": "malformed_json", "detail": "request body is not valid JSON"},
+    )
+
 
 app.include_router(events_router)
 

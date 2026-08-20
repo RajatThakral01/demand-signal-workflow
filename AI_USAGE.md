@@ -84,5 +84,53 @@ this file is `ai-usage.json`.
 
 ---
 
-*Model/provider note: model identifier is `~deepseek/deepseek-v4-flash-latest`
-served via OpenRouter. Exact pinned model string recorded in each session entry.*
+### Session: Phase 1 follow-up — Docker boot path, centralized error handler, Docker-based test run
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0003`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `~deepseek/deepseek-v4-flash-latest`
+- **What was generated / changed:** `docker-entrypoint.sh` (runs `alembic upgrade
+  head` then starts uvicorn) + `Dockerfile` uses it as `ENTRYPOINT` so a fresh
+  container self-migrates on boot with no manual alembic; `app/errors.py`
+  (`MalformedJSONError` typed exception) + centralized `MalformedJSONError`
+  exception handler in `app/main.py`; `app/routers/events.py` now `raise`s the
+  typed exception instead of returning an inline `JSONResponse`. Confirmed
+  `email-validator==2.2.0` present in `requirements.txt` and installed.
+- **Verification (Docker-based, not the local-Postgres bypass):** `docker compose
+  down -v` (wiped the DB volume) → `docker compose build` → `docker compose up`
+  succeeded; app log shows the entrypoint auto-ran `alembic upgrade head` →
+  `create events table`, then uvicorn booted; `\d events` inside the `db` service
+  confirms `events_dedupe_key_key UNIQUE CONSTRAINT`; `POST /api/v1/events`
+  exercised live: valid create → `duplicate:true` on resubmit → malformed →
+  `400 {"error":"malformed_json"}` → schema-invalid → `200 is_valid=false`
+  (no manual alembic run anywhere). Full suite `pytest` re-run from inside the
+  app image against the compose `db` service (tests mounted via volume since
+  `.dockerignore` keeps `tests/` out of the image): **26 passed in 0.24s**.
+
+---
+
+### Session: Phase 1 follow-up — isolated test database
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0004`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `~deepseek/deepseek-v4-flash-latest`
+- **What was generated / changed:** `docker/init/01-test-db.sql` (creates
+  `dsw_test` on first volume init, alongside dev `dsw` on the same Postgres);
+  `docker-compose.yml` mounts that init script and adds `TEST_DATABASE_URL`
+  (defaulting to `...@db:5432/dsw_test`); `tests/conftest.py` now *hard-assigns*
+  `DATABASE_URL` from `TEST_DATABASE_URL` before importing the app, so the pytest
+  process (app-under-test + fixtures) pins to the isolated test DB; README gained
+  a short setup/one-line-reason note.
+- **Human review / changes:** a real defect was caught during verification — the
+  first conftest change used `os.environ.setdefault("DATABASE_URL", ...)`, which
+  inside the app container silently kept the existing dev `DATABASE_URL=dsw`
+  (setdefault never overrides a present value), so the suite dropped `events` in
+  dev `dsw`. Fixed to a hard assignment; the curl-before / test-run / curl-after
+  sequence then passed.
+- **Verification:** `docker compose down -v` → `up` created both `dsw` and
+  `dsw_test` (`\l` lists both). POSTed a dev event into dev `dsw`, then ran the
+  in-container suite (tests + pytest.ini mounted) pointed at `TEST_DATABASE_URL`:
+  **26 passed**; afterwards GET of the dev event still returned **200** with its
+  full body and dev `dsw` `SELECT count(*)=1` — the test run no longer wipes dev
+  data. Re-ran the suite a final time: **26 passed in 0.23s**, dev event GET still
+  200.
+
+---

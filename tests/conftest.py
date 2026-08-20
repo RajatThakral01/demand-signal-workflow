@@ -1,16 +1,27 @@
 """Shared pytest fixtures.
 
-Sets the test DB URL before any app module is imported (config/session read it at
-import time), then gives the FastAPI app an AsyncClient over ASGITransport backed
-by that same real Postgres (integration tests run against real Postgres, not
-mocks — PRD §11 and Phase-1 gate requirement).
+Forces the test DB URL onto the process **before any app module is imported**
+(config/session read it at import time), so the app under test and the fixtures
+run against an isolated test database — never the app's dev DATABASE_URL.
+
+This is a hard assignment, not ``setdefault``: when tests run inside the app image
+via ``docker compose run``, the container already carries ``DATABASE_URL`` pointing
+at the dev ``dsw`` database; ``setdefault`` would silently keep that and let the
+suite drop/create against dev data. Overwriting it pins every connection in the
+pytest process to the isolated test database.
+
+``TEST_DATABASE_URL`` defaults to a `dsw_test` database created by
+``docker/init`` on the same ``db`` service (docker compose) or to a local
+``dsw_test`` on the host's Postgres socket when running outside Docker.
 """
 
 import os
 
-os.environ.setdefault(
-    "DATABASE_URL", "postgresql+asyncpg://rajatthakral@/dsw_test?host=/tmp"
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or (
+    "postgresql+asyncpg://rajatthakral@/dsw_test?host=/tmp"
 )
+
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ.setdefault("ADMIN_API_KEY", "test_admin_key")
 os.environ.setdefault("APP_ENV", "test")
 

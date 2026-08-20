@@ -20,6 +20,9 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # On first init this creates `dsw_test` alongside `dsw` so the test suite
+      # never shares (and never wipes) the app's dev database.
+      - ./docker/init:/docker-entrypoint-initdb.d:ro
 
   app:
     build: .
@@ -41,6 +44,9 @@ services:
       APP_ENV: ${APP_ENV:-local}
       RETRY_MAX_ATTEMPTS: ${RETRY_MAX_ATTEMPTS:-3}
       RETRY_BASE_DELAY_MS: ${RETRY_BASE_DELAY_MS:-500}
+      # Tests run against an isolated database (created by docker/init on first
+      # boot) so the suite's drop_all/create_all never touches dev data.
+      TEST_DATABASE_URL: ${TEST_DATABASE_URL:-postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw_test}
     ports:
       - "8000:8000"
 

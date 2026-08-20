@@ -91,6 +91,57 @@
       ],
       "human_modified_files": [],
       "verification": "pytest against real test Postgres (dsw_test on local socket): 26 passed, 0 failed. malformed→400 not persisted; schema-invalid→200 is_valid=false persisted; exact duplicate→duplicate:true one row; edit→is_edit:true updated no 2nd row; concurrency asyncio.gather → ['created','duplicate'] one row; direct-insert of same dedupe_key raises IntegrityError proving DB (not app) enforcement; alembic upgrade head + \\d events show events_dedupe_key_key UNIQUE CONSTRAINT"
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0003",
+      "phase": "Phase 1 follow-up - Docker boot path, centralized error handler, Docker-based test run",
+      "started_at": "2026-08-20T00:00:00Z",
+      "ended_at": "2026-08-20T00:00:00Z",
+      "provider": "OpenRouter",
+      "model": "~deepseek/deepseek-v4-flash-latest",
+      "version": null,
+      "prompts_or_hashes": [
+        "phase 1 review: docker-compose build + clean up; auto-run alembic upgrade head on boot; show malformed-JSON 400 mechanism; confirm received_at absent-safety; re-run suite via Docker"
+      ],
+      "notes": [
+        "docker-entrypoint.sh runs alembic upgrade head then uvicorn so fresh containers self-migrate with no manual alembic; MalformedJSONError typed exception handled centrally in main.py returns flat 400 {'error':'malformed_json'} (HTTPException would wrap in {'detail':{...}}); tests kept out of prod image (.dockerignore) so in-container test run binds tests/pytest.ini via volume mount against the compose db service; email-validator confirmed pinned in requirements.txt"
+      ],
+      "skills_tools": [],
+      "generated_files": [
+        "docker-entrypoint.sh",
+        "Dockerfile",
+        "app/errors.py",
+        "app/main.py",
+        "app/routers/events.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "human_modified_files": [],
+      "verification": "docker compose down -v -> build -> up: entrypoint auto-ran alembic upgrade head (create events table) then uvicorn; \\d events in db service shows events_dedupe_key_key UNIQUE CONSTRAINT; live POST: valid create -> duplicate:true -> malformed 400 {'error':'malformed_json'} -> schema-invalid 200 is_valid=false, no manual alembic. pytest re-run in-container against compose db (tests volume-mounted): 26 passed in 0.24s"
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0004",
+      "phase": "Phase 1 follow-up - isolated test database",
+      "started_at": "2026-08-20T00:00:00Z",
+      "ended_at": "2026-08-20T00:00:00Z",
+      "provider": "OpenRouter",
+      "model": "~deepseek/deepseek-v4-flash-latest",
+      "version": null,
+      "prompts_or_hashes": [
+        "phase 1 review: isolate test DB from dev DB so the suite's drop/create never stomps manual walkthrough data"
+      ],
+      "notes": [
+        "docker/init/01-test-db.sql creates dsw_test on the same Postgres instance at first volume init; compose mounts it and adds TEST_DATABASE_URL (default :5432/dsw_test); conftest hard-assigns DATABASE_URL from TEST_DATABASE_URL before app import because setdefault silently kept the container's dev DATABASE_URL=dsw on the first attempt, which let the suite drop dev events - caught in verification and fixed to a hard assignment"
+      ],
+      "skills_tools": [],
+      "generated_files": [
+        "docker/init/01-test-db.sql",
+        "docker-compose.yml",
+        "tests/conftest.py",
+        "README.md"
+      ],
+      "human_modified_files": [],
+      "verification": "docker compose down -v -> up created both dsw and dsw_test (\\l lists both); POSTed dev event into dev dsw; in-container suite against TEST_DATABASE_URL: 26 passed; afterwards GET dev event still 200 with full body, dev dsw count(*)=1 - test run no longer wipes dev data; final re-run 26 passed in 0.23s with dev event GET still 200"
     }
   ]
 }
