@@ -16,6 +16,15 @@ this file is `ai-usage.json`.
 - `verification` records what was actually tested (real output, not assumption).
 - No real secrets or raw PII are recorded here, and PII is masked if ever relevant.
 
+## Standing process notes
+- **`docker compose build` before `docker compose up` whenever a new Alembic
+  migration is added.** The app image has its migration files baked in at build
+  time, so the in-container entrypoint's `alembic upgrade head` cannot see
+  revisions that postdate the last build. A stale image silently applies only the
+  older revisions (or fails), as happened at Phase 2's fixup (0003). Make
+  build-then-up a standing habit every time migrations change, so the self-migrate
+  entrypoint stay correct.
+
 ## Sessions
 
 ### Session: Phase 0 — Scaffolding, Environment & Disclosure Setup
