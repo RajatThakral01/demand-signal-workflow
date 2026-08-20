@@ -212,3 +212,50 @@ this file is `ai-usage.json`.
   DB passed (52).
 
 ---
+
+### Session: Phase 3 — Interpret: LIVE classification via OpenRouter (FR-4)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0007`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `deepseek/deepseek-v4-flash`
+- **REAL PAID API CALL in this phase.** Written approval from Krishnam (via Rajat)
+  covers LIVE API usage for the interpretation stage (PRD §9). Ran 4–5 live calls
+  total (probes while tuning `max_tokens` + one canonical test run). Measured
+  cost: primary test run **212 tokens (132 prompt + 80 completion) ≈ $0.00003**
+  (USD) at DeepSeek V4 Flash pricing ($0.089/M prompt, $0.177/M completion).
+  Total across all probe/live calls ≈ **$0.0003** — sub-cent. Full numbers live in
+  `interpretations.token_usage` and this entry; usable for the README cost section.
+- **Model deviation (deliberate, disclosed):** the PRD's example string was
+  `anthropic/claude-haiku-4.5`. I switched to **`deepseek/deepseek-v4-flash` via
+  OpenRouter** because it is materially cheaper for repeated test runs. FR-4 and
+  `interpretations.model_version` are provider/model-agnostic by design, so no PRD
+  change is required — only this disclosure. Updated the default in
+  `docker-compose.yml`, `.env.example`'s comment, `app/config.py`, and local
+  `.env`. Model identifier confirmed against OpenRouter's live model list
+  (`deepseek/deepseek-v4-flash`).
+- **What was generated:** `interpretations` table + Alembic `0004_interpretations`;
+  `app/services/interpret.py` (async `openai` SDK pointed at OpenRouter base URL,
+  `temperature=0`, `max_tokens=200`, `model_version`+`prompt_version` on every
+  result, tenacity bounded retry, sub-min-length LLM-skip); wired interpretation
+  into the POST /api/v1/events pipeline (Flow 1 step 4) with a surfaced
+  `interpret_status=error` on provider failure (dead-letter is Phase 8);
+  response schema extended with interpret fields; upsert-on-edit so an edited
+  resubmission doesn't violate the event_id-unique constraint.
+- **What is still a placeholder:** dead-letter integration is Phase 8; on provider
+  failure today the response carries `interpret_status=error` (visible) rather
+  than writing a `dead_letter_queue` row.
+- **Human review / changes:** pending Rajat review.
+- **Verification:** full suite **54 passed, 1 skipped** (the one `live`-marked
+  test requires `RUN_LIVE_INTERPRET_TEST=1` + a real key, so it's gated off by
+  default per cost discipline). Short-text test uses a spy on `_call_llm` and
+  asserts it is **never invoked** (provably skipped, not coincidentally unknown).
+  Provider-failure test spies on `_call_llm`, observes exactly `retry_max_attempts`
+  (3) attempts with exponential-backoff log lines, asserts `InterpretError` is
+  surfaced and **no fabricated `unknown` row** is written. Real LIVE test (run
+  once, `RUN_LIVE_INTERPRET_TEST=1`): HTTP 200, returned
+  `label=pricing_inquiry confidence=0.95`, recorded model
+  `deepseek/deepseek-v4-flash`, `prompt_version=interpret_v1`, token_usage
+  `{prompt:132, completion:80, total:212}`, cost ≈ $0.00003. In-container suite
+  (isolated dsw_test) also **54 passed, 1 skipped**; entrypoint auto-applied
+  migration 0004 to the compose dev DB (\d interpretations confirmed).
+
+---

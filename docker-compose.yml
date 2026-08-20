@@ -33,7 +33,10 @@ services:
       # In-compose default points at the `db` service. Overridable via .env.
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      CLASSIFICATION_MODEL: ${CLASSIFICATION_MODEL:-anthropic/claude-haiku-4.5}
+      # CLASSIFICATION_MODEL pinned to DeepSeek V4 Flash via OpenRouter (much
+      # cheaper than the PRD example anthropic/claude-haiku-4.5 for test runs).
+      # Deliberate deviation disclosed in AI_USAGE.md; FR-4 is model-agnostic.
+      CLASSIFICATION_MODEL: ${CLASSIFICATION_MODEL:-deepseek/deepseek-v4-flash}
       # ADMIN_API_KEY is intentionally REQUIRED via .env with NO fallback — the
       # only runtime auth gate must not silently accept a hardcoded value. If
       # unset, config.py fails fast at import (see app/config.py).

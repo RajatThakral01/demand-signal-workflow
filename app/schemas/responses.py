@@ -23,3 +23,11 @@ class EventIngestResponse(BaseModel):
     status: str | None = None
     review_id: str | None = None
     identity_id: str | None = None
+    # Classification state (Phase 3, LIVE OpenRouter). ``interpret_status`` is
+    # ``ok`` (or ``skipped`` for sub-min-length text) or ``error`` (provider
+    # failure after bounded retries — visible, not a silent unknown). The label
+    # and interpretation id are present on ok/skipped. cost/tokens are not
+    # exposed here; see interpretations.token_usage.
+    interpret_status: str | None = None
+    label: str | None = None
+    interpretation_id: str | None = None

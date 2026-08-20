@@ -34,7 +34,12 @@ class Settings(BaseSettings):
     identity_policy_version: str = "identity_policy_v1.json"
 
     # --- Classification --------------------------------------------------------
-    classification_model: str = "anthropic/claude-haiku-4.5"
+    # Pinned model accessed via OpenRouter. Dev default is DeepSeek V4 Flash
+    # (cheaper than the PRD example string; see AI_USAGE.md for the deviation).
+    classification_model: str = "deepseek/deepseek-v4-flash"
+    # Minimum free-text length (in tokens) before the LLM is worth calling (FR-4).
+    # Shorter text classifies as `unknown` WITHOUT calling the LLM (cost-saving).
+    interpret_min_tokens: int = Field(default=8, ge=1)
 
     # --- Runtime ----------------------------------------------------------------
     app_env: str = Field(default="local")

@@ -11,15 +11,33 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Event
+from app.db.models import Event, Interpretation
 from app.errors import MalformedJSONError
 from app.db.session import get_db_session
 from app.schemas.events import event_adapter
 from app.schemas.responses import EventIngestResponse
 from app.services import ingest
+from app.services.interpret import InterpretError, classify_event
 from app.services.resolve import resolve_identity
 
 router = APIRouter(prefix="/api/v1", tags=["events"])
+
+
+def _interpret_response(event_id: str, status_flag: str, identity_id: str,
+                        interpret: dict | None) -> EventIngestResponse:
+    """Build the ingest response from resolution + interpretation outcomes."""
+    if interpret is None:
+        return EventIngestResponse(
+            event_id=event_id, is_edit=(status_flag == "edit"),
+            is_valid=True, status="linked", identity_id=identity_id,
+        )
+    return EventIngestResponse(
+        event_id=event_id, is_edit=(status_flag == "edit"),
+        is_valid=True, status="linked", identity_id=identity_id,
+        interpret_status=interpret.get("status"),
+        label=interpret.get("label"),
+        interpretation_id=interpret.get("interpretation_id"),
+    )
 
 
 @router.post("/events", response_model=EventIngestResponse)
@@ -82,11 +100,15 @@ async def create_event(
         )
 
     identity_id = str(resolution["identity_id"])
-    if status_flag == "edit":
-        return EventIngestResponse(event_id=str(event.id), is_edit=True,
-                                   status="linked", identity_id=identity_id)
-    return EventIngestResponse(event_id=str(event.id), is_valid=True,
-                               status="linked", identity_id=identity_id)
+    # Flow 1 step 4: interpretation (LIVE OpenRouter). Short text skips the LLM;
+    # a provider failure surfaces as a visible interpret_status="error" rather
+    # than a fabricated unknown. (Dead-letter integration is Phase 8.)
+    try:
+        interpret = await classify_event(db, event)
+    except InterpretError:
+        return _interpret_response(str(event.id), status_flag, identity_id,
+                                   {"status": "error"})
+    return _interpret_response(str(event.id), status_flag, identity_id, interpret)
 
 
 @router.get("/events/{event_id}", response_model=dict)

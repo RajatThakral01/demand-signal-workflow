@@ -21,6 +21,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -140,3 +141,33 @@ class ManualReviewQueue(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolution: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class Interpretation(Base):
+    """LLM classification result for a single event (FR-4).
+
+    One interpretation per event (``event_id`` UNIQUE). ``model_version`` and
+    ``prompt_version`` are recorded on every result so the classification is
+    reproducible. This is the output of the LIVE OpenRouter call — the only real
+    external API call in the system. ``token_usage`` stores the OpenAI usage
+    object so actual cost can be reported in the README's cost section.
+    """
+
+    __tablename__ = "interpretations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False, unique=True
+    )
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    confidence: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    model_version: Mapped[str] = mapped_column(String, nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String, nullable=False)
+    was_skipped: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
