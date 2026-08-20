@@ -12,7 +12,9 @@ Two groups:
 import os
 from datetime import datetime, timezone
 
+import openai
 import pytest
+import httpx
 from sqlalchemy import select
 
 from app.db.models import Event, Interpretation
@@ -20,6 +22,14 @@ from app.services import interpret
 from app.services.ingest import compute_dedupe_key, compute_payload_hash
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _http_response(status: int) -> httpx.Response:
+    """Build a minimal httpx.Response for constructing openai API errors."""
+    return httpx.Response(
+        status_code=status,
+        request=httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions"),
+    )
 
 
 async def _insert_event(db, text: str | None, source="web_form") -> Event:
@@ -71,6 +81,8 @@ async def test_short_text_never_calls_llm(db_session, monkeypatch):
 
 # --- Provider failure: bounded retry + visible InterpretError -----------------
 async def test_provider_failure_surfaces_error_and_retries_bounded(db_session, monkeypatch):
+    """A real transient openai exception (timeout) is bounded-retried, then surfaces
+    InterpretError on exhaustion — never a fabricated unknown."""
     event = await _insert_event(
         db_session,
         "our team of ten engineers is evaluating your platform for onboarding and "
@@ -80,7 +92,8 @@ async def test_provider_failure_surfaces_error_and_retries_bounded(db_session, m
     attempts: list = []
     async def _always_fail(*args, **kwargs):
         attempts.append(1)
-        raise RuntimeError("simulated provider 503")
+        # A real openai SDK exception an actual OpenRouter timeout would raise.
+        raise openai.APITimeoutError(request=object())
     monkeypatch.setattr(interpret, "_call_llm", _always_fail)
 
     # Force a small retry budget so the test is fast and clearly bounded.
@@ -98,6 +111,51 @@ async def test_provider_failure_surfaces_error_and_retries_bounded(db_session, m
             Interpretation.event_id == event.id))
     ).scalars().first()
     assert row is None or row.was_skipped is not True
+
+
+async def test_rate_limit_429_is_retried_then_surfaces_error(db_session, monkeypatch):
+    """openai.RateLimitError (429) is transient and bounded-retried."""
+    event = await _insert_event(
+        db_session,
+        "evaluating integration and compliance requirements across several teams "
+        "for a pilot deployment with additional questions about the subscription",
+    )
+    attempts: list = []
+    async def _rate_limit(*args, **kwargs):
+        attempts.append(1)
+        raise openai.RateLimitError(
+            message="rate-limited", response=_http_response(429), body=None
+        )
+    monkeypatch.setattr(interpret, "_call_llm", _rate_limit)
+    monkeypatch.setattr(interpret.settings, "retry_max_attempts", 2)
+    monkeypatch.setattr(interpret.settings, "retry_base_delay_ms", 1)
+
+    with pytest.raises(interpret.InterpretError):
+        await interpret.classify_event(db_session, event)
+    assert len(attempts) == 2
+
+
+async def test_auth_error_401_fails_fast_no_retry(db_session, monkeypatch):
+    """A 401 from a bad key is a config problem: fail fast, do NOT retry."""
+    event = await _insert_event(
+        db_session,
+        "evaluating the platform with several compliance questions for our ten "
+        "engineers before we decide on the integration approach and rollout",
+    )
+    attempts: list = []
+    async def _auth_fail(*args, **kwargs):
+        attempts.append(1)
+        raise openai.AuthenticationError(
+            message="bad key", response=_http_response(401), body=None
+        )
+    monkeypatch.setattr(interpret, "_call_llm", _auth_fail)
+    monkeypatch.setattr(interpret.settings, "retry_max_attempts", 3)
+    monkeypatch.setattr(interpret.settings, "retry_base_delay_ms", 1)
+
+    with pytest.raises(interpret.InterpretError):
+        await interpret.classify_event(db_session, event)
+    # Only ONE attempt: non-retryable 401 failed fast.
+    assert len(attempts) == 1
 
 
 # --- Real LIVE call (skipped unless explicitly enabled) -----------------------

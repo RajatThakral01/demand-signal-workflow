@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Event, Interpretation
+from app.db.models import Event
 from app.errors import MalformedJSONError
 from app.db.session import get_db_session
 from app.schemas.events import event_adapter

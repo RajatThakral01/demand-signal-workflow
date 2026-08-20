@@ -232,6 +232,30 @@
         ".env (CLASSIFICATION_MODEL value updated to deepseek/deepseek-v4-flash)"
       ],
       "verification": "full suite 54 passed, 1 skipped (live test gated behind RUN_LIVE_INTERPRET_TEST=1). short-text spy test asserts _call_llm never invoked; provider-failure test observes exactly 3 attempts with backoff logs and surface InterpretError with no fabricated unknown row. REAL LIVE test run once: HTTP 200, label=pricing_inquiry confidence=0.95, prompt_version=interpret_v1, model=deepseek/deepseek-v4-flash, token_usage prompt 132 completion 80 total 212, cost ~$0.00003 (total across probes ~$0.0003). In-container suite against isolated dsw_test: 54 passed 1 skipped; entrypoint applied 0004 to compose dev DB"
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0008",
+      "phase": "Phase 3 fixup - real openai retry condition + API-key security",
+      "started_at": "2026-08-20T00:00:00Z",
+      "ended_at": "2026-08-20T00:00:00Z",
+      "provider": "OpenRouter",
+      "model": "deepseek/deepseek-v4-flash",
+      "version": null,
+      "prompts_or_hashes": [
+        "phase 3 review: widen retry to real openai SDK exceptions (APITimeoutError/RateLimitError/APIConnectionError/InternalServerError) not RuntimeError; keep 401/bad-key fail-fast; API key rotation security note; clean confusing cost wording"
+      ],
+      "notes": [
+        "retry only transient failures via _is_retryable(): InterpretError (bad-JSON parse), openai.APIConnectionError (covers timeout), openai.APIStatusError when status 429 or >=500; NOT AuthenticationError/other 4xx (config problem, fail fast). Key rotation occurred this phase - prior key value never committed or left in tracked files, only git-ignored .env and throwaway (uncommitted) debug scripts; standing rule added: never hardcode a real key, always read from env. Removed unused Interpretation import in events.py. Cost phrasing cleaned to unambiguous 212 tokens = $0.000026 total. New test exception constructors use httpx.Response because openai SDK errors read status_code off the response."
+      ],
+      "skills_tools": [],
+      "generated_files": [
+        "app/services/interpret.py",
+        "app/routers/events.py",
+        "tests/integration/test_interpret.py",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "verification": "full suite 56 passed, 1 skipped. provider-failure test now mocks real openai.APITimeoutError (3 bounded attempts, InterpretError surfaced, no fabricated unknown); test_rate_limit_429 -> 2 attempts; test_auth_error_401_fails_fast_no_retry -> 1 attempt. predicate independently verified: 429 retry, 500 retry, 401 no, 400 no. No new real API cost this session (no live run)"
     }
   ]
 }

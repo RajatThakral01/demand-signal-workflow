@@ -24,6 +24,12 @@ this file is `ai-usage.json`.
   older revisions (or fails), as happened at Phase 2's fixup (0003). Make
   build-then-up a standing habit every time migrations change, so the self-migrate
   entrypoint stay correct.
+- **Never hardcode a real API key value into any script, heredoc, or command.**
+  Always read secrets from the environment (`os.environ["OPENROUTER_API_KEY"]`,
+  loaded via `set -a && source .env && set +a`) — including in throwaway debug
+  scripts. If a raw provider response needs to be inspected for debugging, write
+  the debug script to read the key from env, never paste the literal value into
+  code.
 
 ## Sessions
 
@@ -220,7 +226,8 @@ this file is `ai-usage.json`.
 - **REAL PAID API CALL in this phase.** Written approval from Krishnam (via Rajat)
   covers LIVE API usage for the interpretation stage (PRD §9). Ran 4–5 live calls
   total (probes while tuning `max_tokens` + one canonical test run). Measured
-  cost: primary test run **212 tokens (132 prompt + 80 completion) ≈ $0.00003**
+  cost: primary test run **212 tokens (132 prompt + 80 completion) on
+  deepseek/deepseek-v4-flash = $0.000026 total**.
   (USD) at DeepSeek V4 Flash pricing ($0.089/M prompt, $0.177/M completion).
   Total across all probe/live calls ≈ **$0.0003** — sub-cent. Full numbers live in
   `interpretations.token_usage` and this entry; usable for the README cost section.
@@ -254,8 +261,36 @@ this file is `ai-usage.json`.
   once, `RUN_LIVE_INTERPRET_TEST=1`): HTTP 200, returned
   `label=pricing_inquiry confidence=0.95`, recorded model
   `deepseek/deepseek-v4-flash`, `prompt_version=interpret_v1`, token_usage
-  `{prompt:132, completion:80, total:212}`, cost ≈ $0.00003. In-container suite
+  `{prompt:132, completion:80, total:212}`, cost = $0.000026 total. In-container suite
   (isolated dsw_test) also **54 passed, 1 skipped**; entrypoint auto-applied
   migration 0004 to the compose dev DB (\d interpretations confirmed).
+
+---
+
+### Session: Phase 3 fixup — real openai retry condition + API-key security
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0008`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `deepseek/deepseek-v4-flash` (no new API call)
+- **What was generated / changed:**
+  - **Retry condition widened to real openai SDK exceptions.** `classify_event`
+    previously retried only `(RuntimeError, TimeoutError)`, which matched the
+    test's synthetic error but NOT the real `openai.APITimeoutError` /
+    `openai.RateLimitError` / `openai.APIConnectionError` /
+    `openai.InternalServerError` an actual OpenRouter outage or rate-limit would
+    raise. Added `_is_retryable()` predicate: retries `InterpretError`
+    (bad/truncated-JSON parse), `openai.APIConnectionError` (covers timeouts), and
+    `openai.APIStatusError` when status is 429 or >=500. It does NOT retry
+    `AuthenticationError` (401 bad key) or other 4xx — config problems fail fast.
+  - **Key rotation (security).** Rajat rotated the OpenRouter API key during this
+    phase. Standing rule added to "Standing process notes": never hardcode a real
+    API key into any script/heredoc; always read from env.
+  - Removed the unused `Interpretation` import from `app/routers/events.py`.
+  - Cleaned the confusing cost phrasing to the unambiguous
+    "212 tokens = $0.000026 total".
+- **Verification:** full suite **56 passed, 1 skipped** (up from 54). New tests:
+  provider-failure now mocks a REAL `openai.APITimeoutError` (3 bounded attempts,
+  `InterpretError` surfaced, no fabricated `unknown` row); `test_rate_limit_429`
+  (2 attempts); `test_auth_error_401_fails_fast_no_retry` (1 attempt). The
+  predicate is verified independently: 429→retry, 500→retry, 401→no, 400→no.
 
 ---

@@ -20,11 +20,12 @@ import re
 from decimal import Decimal
 from typing import Any
 
+import openai
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import (
     AsyncRetrying,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_random_exponential,
 )
@@ -58,6 +59,29 @@ class InterpretError(Exception):
     def __init__(self, message: str, errors: list[BaseException] | None = None):
         super().__init__(message)
         self.errors = errors or []
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Return True when a provider exception is a *transient* failure worth a retry.
+
+    Retryable:
+      * our own ``InterpretError`` (a non-JSON/truncated parse — retry the call),
+      * ``openai.APIConnectionError`` (covers timeouts & connection problems),
+      * ``openai.APIStatusError`` with a retryable status: 429 (rate limit) or
+        >=500 (server outages). ``RateLimitError`` and ``InternalServerError`` are
+        subclasses of ``APIStatusError`` and carry those status codes.
+
+    NOT retryable (fail fast — a config problem, not a transient blip):
+      * ``openai.AuthenticationError`` (401 bad key), 400s, and other 4xx.
+      * anything else.
+    """
+    if isinstance(exc, InterpretError):
+        return True
+    if isinstance(exc, openai.APIConnectionError):
+        return True
+    if isinstance(exc, openai.APIStatusError):
+        return exc.status_code == 429 or exc.status_code >= 500
+    return False
 
 
 def _count_tokens(text: str) -> int:
@@ -243,10 +267,12 @@ async def classify_event(
                 "was_skipped": True}
 
     # Bounded retry around the ONE external call (FR-11, wired for Phase 8's
-    # dead-letter path). On exhaustion we convert the final provider exception
-    # into a visible InterpretError — never a silent `unknown`.
+    # dead-letter path). Only transient provider failures (timeout, connection,
+    # 429 / 5xx, or a bad-JSON parse) are retried; a 401/bad-key or other 4xx
+    # config error fails fast. On exhaustion the final exception is converted into
+    # a visible InterpretError — never a silent `unknown`.
     retrying = AsyncRetrying(
-        retry=retry_if_exception_type((RuntimeError, TimeoutError)),
+        retry=retry_if_exception(_is_retryable),
         stop=stop_after_attempt(max_attempts),
         wait=wait_random_exponential(
             multiplier=settings.retry_base_delay_ms / 1000, max=8.0
