@@ -84,6 +84,12 @@ async def upsert_attribution(
                 raise  # unexpected — re-raise
             # Fall through to the update path with the winner's row.
         else:
+            logger.info(
+                "attribution_created",
+                event_id=str(event.id),
+                identity_id=str(identity_id),
+                first_touch_at=touch.first_touch_at.isoformat(),
+            )
             return touch
 
     # Update path (existing row, not an edit event). Strict < and > only — ties
