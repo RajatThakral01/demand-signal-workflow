@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Lead {{ lead.lead_id[:8] }}{% endblock %}
+{% block content %}
+<h2>Lead {{ lead.lead_id }}</h2>
+<p><a href="/dashboard/leads">← back to leads</a> — <a href="/api/v1/leads/{{ lead.lead_id }}" target="_blank">JSON</a></p>
+<table>
+    <tbody>
+        <tr><th>Identity</th><td>{{ lead.identity_id }}</td></tr>
+        <tr><th>Status</th><td>{{ lead.status }}</td></tr>
+        <tr><th>Source event</th><td><a href="/api/v1/events/{{ lead.source_event_id }}" target="_blank">{{ lead.source_event_id }}</a></td></tr>
+        <tr><th>Queue</th><td>{{ lead.queue or "—" }}</td></tr>
+        <tr><th>Rule matched</th><td>{{ lead.rule_matched or "—" }}</td></tr>
+        <tr><th>SLA deadline</th><td>{{ lead.sla_deadline or "—" }}</td></tr>
+        <tr><th>Escalated</th><td>{% if lead.escalated %}yes{% else %}no{% endif %}</td></tr>
+        <tr><th>Score</th><td>{{ lead.score if lead.score is not none else "—" }}</td></tr>
+        <tr><th>Decision</th><td>{{ lead.decision or "—" }}</td></tr>
+        <tr><th>Assigned at</th><td>{{ lead.assigned_at or "—" }}</td></tr>
+        <tr><th>Created / Updated</th><td>{{ lead.created_at }} / {{ lead.updated_at }}</td></tr>
+    </tbody>
+</table>
+
+<h3>Score features</h3>
+{% if lead.score_features %}
+<pre>{{ lead.score_features | tojson(indent=2) }}</pre>
+<p class="muted">Policy version: {{ lead.policy_version or "—" }}</p>
+{% else %}
+<p class="muted">No score features</p>
+{% endif %}
+
+<h3>Attribution</h3>
+{% if lead.first_touch_at %}
+<table>
+    <tbody>
+        <tr><th>First touch at</th><td>{{ lead.first_touch_at }}</td></tr>
+        <tr><th>First source</th><td>{{ lead.first_touch_source }}</td></tr>
+        <tr><th>Last touch at</th><td>{{ lead.last_touch_at }}</td></tr>
+        <tr><th>Last source</th><td>{{ lead.last_touch_source }}</td></tr>
+    </tbody>
+</table>
+{% else %}
+<p class="muted">No attribution touch</p>
+{% endif %}
+
+{% if event %}
+<h3>Source event</h3>
+<table>
+    <tbody>
+        <tr><th>External ID</th><td>{{ event.external_event_id }}</td></tr>
+        <tr><th>Source</th><td>{{ event.source }}</td></tr>
+        <tr><th>Payload hash</th><td class="muted">{{ event.payload_hash[:12] }}…</td></tr>
+        <tr><th>Is edit</th><td>{{ event.is_edit }}</td></tr>
+        <tr><th>Valid</th><td>{{ event.is_valid }}</td></tr>
+        <tr><th>Received at</th><td>{{ event.received_at }}</td></tr>
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

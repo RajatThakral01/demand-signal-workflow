@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Demand-Signal Workflow{% endblock %} — DAXVORA-RAJAT-2026-08-A01</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+    <h1>Demand-Signal Workflow</h1>
+    <p class="eval-id">Evaluation ID DAXVORA-RAJAT-2026-08-A01 | Connectors: <strong>SIMULATED</strong> (fixture generators) | Classification: <strong>LIVE</strong> via OpenRouter</p>
+    <nav aria-label="Primary">
+        <a href="/dashboard" {% if request.url.path == "/dashboard" %}aria-current="page"{% endif %}>Summary</a>
+        <a href="/dashboard/leads" {% if request.url.path.startswith("/dashboard/leads") %}aria-current="page"{% endif %}>Leads</a>
+        <a href="/dashboard/manual-review" {% if request.url.path.startswith("/dashboard/manual-review") %}aria-current="page"{% endif %}>Manual Review</a>
+        <a href="/dashboard/dead-letter" {% if request.url.path.startswith("/dashboard/dead-letter") %}aria-current="page"{% endif %}>Dead Letter</a>
+        <a href="/api/v1/dashboard/reconciliation" target="_blank">Reconciliation JSON</a>
+        <a href="/health" target="_blank">Health</a>
+    </nav>
+</header>
+<main>
+    {% block content %}{% endblock %}
+</main>
+<footer>
+    <p>Read-only evaluator tooling — no JS framework, plain semantic HTML. Raw PII never shown in logs; display names shown here are from DB for evaluator inspection.</p>
+</footer>
+</body>
+</html>

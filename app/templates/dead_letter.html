@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Dead Letter{% endblock %}
+{% block content %}
+<h2>Dead-letter queue</h2>
+<p class="muted">{{ rows|length }} {{ "unresolved" if not resolved else "resolved" }} — <a href="/api/v1/dead-letter?resolved=false" target="_blank">JSON unresolved</a> · <a href="/api/v1/dead-letter?resolved=true" target="_blank">JSON resolved</a> — <a href="/dashboard">summary</a></p>
+<table>
+    <thead><tr><th>ID</th><th>Event</th><th>Stage</th><th>Error</th><th>Retries</th><th>Resolved</th><th>Created</th><th>Replay</th></tr></thead>
+    <tbody>
+        {% for r in rows %}
+        <tr>
+            <td class="muted">{{ r.id[:8] }}…</td>
+            <td><a href="/api/v1/events/{{ r.event_id }}" target="_blank">{{ r.event_id[:8] }}…</a></td>
+            <td>{{ r.stage }}</td>
+            <td class="muted" title="{{ r.error }}">{{ r.error[:60] }}{% if r.error|length >60 %}…{% endif %}</td>
+            <td>{{ r.retry_count }}</td>
+            <td>{% if r.resolved %}yes{% else %}no{% endif %}</td>
+            <td class="muted">{{ r.created_at or "—" }}</td>
+            <td>{% if not r.resolved %}<a href="{{ r.replay_url }}" target="_blank">replay</a> <span class="muted">(POST Bearer)</span>{% else %}—{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted">No entries</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p class="muted">Replay via <code>POST {{ rows[0].replay_url if rows else "/api/v1/admin/replay/{event_id}" }}</code> with <code>Authorization: Bearer $ADMIN_API_KEY</code>. Simulate failure via <code>POST /api/v1/admin/simulate-failure</code>.</p>
+{% endblock %}

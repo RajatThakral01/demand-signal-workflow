@@ -5,19 +5,23 @@ a real `SELECT 1` against Postgres (not a hardcoded response). Feature routers
 (events, leads, manual-review, dashboard, admin) mount in later phases.
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db.session import check_db
 from app.errors import MalformedJSONError
 from app.logging import configure_logging, get_logger
-from app.routers.events import router as events_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.dead_letter import router as dead_letter_router
+from app.routers.events import router as events_router
 from app.routers.leads import router as leads_router
 from app.routers.manual_review import router as manual_review_router
 from app.routers.admin import router as admin_router
+from app.routers.pages import router as pages_router
 
 configure_logging(settings.log_level)
 logger = get_logger(__name__)
@@ -54,6 +58,12 @@ app.include_router(manual_review_router)
 app.include_router(dashboard_router)
 app.include_router(dead_letter_router)
 app.include_router(admin_router)
+app.include_router(pages_router)
+
+# Static files for dashboard (CSS) — mount after routers so /static is reserved
+_static_dir = Path(__file__).resolve().parent / "static"
+if _static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 @app.get("/health", summary="Liveness + DB connectivity probe")

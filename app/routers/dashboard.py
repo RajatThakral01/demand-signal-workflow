@@ -28,6 +28,7 @@ from app.db.models import (
     Route,
 )
 from app.db.session import get_db_session
+from app.services.summarize import get_summary
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -73,6 +74,20 @@ def _window(stmt, ts_column, since: datetime | None, until: datetime | None):
     if until is not None:
         stmt = stmt.where(ts_column <= until)
     return stmt
+
+
+@router.get("/summary", response_model=dict)
+async def summary(
+    since: datetime | None = Query(default=None),
+    until: datetime | None = Query(default=None),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Counts by source/status/decision for the dashboard (PRD §8).
+
+    No caching; fresh SQL per request so the HTML badge and the JSON stay
+    consistent.  `since`/`until` mirror `GET /reconciliation` window semantics.
+    """
+    return await get_summary(db, since=since, until=until)
 
 
 @router.get("/reconciliation", response_model=dict)
