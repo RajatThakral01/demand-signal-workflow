@@ -624,7 +624,7 @@ this file is `ai-usage.json`.
   untouched. `test_exhaustion_dead_letters_event_and_halts_pipeline` updated to
   assert 202. Full suite still **94 passed, 1 skipped** locally and in-container.
 
----### Session: Phase 8c — Admin Replay + Simulate-Failure (FR-11, FR-12)
+### Session: Phase 8c — Admin Replay + Simulate-Failure (FR-11, FR-12)
 - **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0016`
 - **Date:** 2026-08-21
 - **Provider / model:** OpenRouter, `deepseek/deepseek-v4-flash` (no new real API
