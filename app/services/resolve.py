@@ -436,23 +436,16 @@ async def resolve_review(
     Both branches commit exactly once, so the review closure, the identity link,
     and every receipt land in a single transaction — a crash mid-resolution cannot
     leave a linked-but-unreceipted identity behind.
+
+    Concurrency: two requests resolving the same review concurrently must yield
+    exactly one winner (200) and one 409.  The claim is performed as an atomic
+    ``UPDATE ... WHERE status='pending'`` — the database, not application-level
+    SELECT-then-UPDATE, decides the winner.  ``SELECT FOR UPDATE`` alone was not
+    sufficient under async ASGI concurrency where both handlers could snapshot the
+    row as pending before either committed.
     """
-    entry = (
-        await db.execute(
-            select(ManualReviewQueue)
-            .where(ManualReviewQueue.id == review_id)
-            .with_for_update()
-        )
-    ).scalars().first()
-    if entry is None:
-        raise LookupError("review not found")
-    if entry.status != "pending":
-        raise ReviewAlreadyResolvedError("review already resolved")
-
-    start = time.monotonic()
-    event_id = entry.event_id
-    resolved_at = datetime.now(timezone.utc)
-
+    # Validate inputs before attempting to claim the review, so a bad request
+    # never flips the review to resolved.
     if decision == "merge_into":
         if identity_id is None:
             raise ValueError("merge_into requires an identity_id")
@@ -461,9 +454,40 @@ async def resolve_review(
         ).scalars().first()
         if target is None:
             raise LookupError("candidate identity not found")
-        entry.resolution = decision
-        entry.status = "resolved"
-        entry.resolved_at = resolved_at
+
+    start = time.monotonic()
+    resolved_at = datetime.now(timezone.utc)
+
+    # Atomic claim — only the first writer that finds status='pending' succeeds.
+    from sqlalchemy import update as sa_update
+
+    claimed = await db.execute(
+        sa_update(ManualReviewQueue)
+        .where(ManualReviewQueue.id == review_id)
+        .where(ManualReviewQueue.status == "pending")
+        .values(status="resolved", resolved_at=resolved_at, resolution=decision)
+        .returning(ManualReviewQueue.event_id, ManualReviewQueue.id)
+    )
+    row = claimed.fetchone()
+    if row is None:
+        # Either not found or already resolved — distinguish for correct HTTP code.
+        exists = (
+            await db.execute(select(ManualReviewQueue).where(ManualReviewQueue.id == review_id))
+        ).scalars().first()
+        if exists is None:
+            raise LookupError("review not found")
+        raise ReviewAlreadyResolvedError("review already resolved")
+
+    event_id, entry_id = row
+
+    if decision == "merge_into":
+        # target already validated above; re-fetch to avoid stale identity after claim
+        target = (
+            await db.execute(select(Identity).where(Identity.id == identity_id))
+        ).scalars().first()
+        # Defensive: target could have been deleted between validation and claim
+        if target is None:
+            raise LookupError("candidate identity not found")
         await _upsert_identity_link(
             db,
             event_id=event_id,
@@ -474,11 +498,11 @@ async def resolve_review(
         await write_receipt(
             db,
             action_type="review_resolved",
-            entity_id=entry.id,
+            entity_id=entry_id,
             entity_type="manual_review",
             event_id=event_id,
             identity_id=target.id,
-            metadata={"resolution": decision, "review_id": str(entry.id)},
+            metadata={"resolution": decision, "review_id": str(entry_id)},
         )
         await db.commit()
         return {"status": "resolved", "identity_id": target.id,
@@ -530,9 +554,6 @@ async def resolve_review(
         match_rule="manual_review_resolve",
         name=new_identity.display_name,  # PII — redacted by _pii_redactor
     )
-    entry.resolution = decision
-    entry.status = "resolved"
-    entry.resolved_at = resolved_at
     await _upsert_identity_link(
         db,
         event_id=event_id,
@@ -543,11 +564,11 @@ async def resolve_review(
     await write_receipt(
         db,
         action_type="review_resolved",
-        entity_id=entry.id,
+        entity_id=entry_id,
         entity_type="manual_review",
         event_id=event_id,
         identity_id=new_identity.id,
-        metadata={"resolution": decision, "review_id": str(entry.id)},
+        metadata={"resolution": decision, "review_id": str(entry_id)},
     )
     await db.commit()
     return {"status": "resolved", "identity_id": new_identity.id,
