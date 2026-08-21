@@ -21,7 +21,6 @@ non-unique index would be redundant. This makes the DB — not app logic — the
 guarantee that a lead has exactly one route.
 """
 
-import sqlalchemy as sa
 from alembic import op
 
 revision = "0009_routes_lead_id_unique"

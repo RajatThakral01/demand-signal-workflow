@@ -8,7 +8,7 @@ Valid action_type values (enforced by assertion):
   event_created, event_edited, event_rejected,
   identity_created, review_queued, review_resolved,
   interpreted, scored,
-  lead_created, lead_updated, routed, route_updated,
+  lead_created, lead_updated, routed, route_updated, escalated,
   attributed_created, attributed_updated,
   dead_lettered, dead_letter_resolved   (Phase 8c — replay resolution)
 """
@@ -29,6 +29,10 @@ VALID_ACTION_TYPES = frozenset({
     "identity_created", "review_queued", "review_resolved",
     "interpreted", "scored",
     "lead_created", "lead_updated", "routed", "route_updated",
+    # FR-9 names `escalated` as a mutating action. It was missing from this set
+    # until the Phase 8 audit, so the SLA-breach transition could not be
+    # receipted at all (see app/services/escalation.py).
+    "escalated",
     "attributed_created", "attributed_updated",
     "dead_lettered", "dead_letter_resolved",
 })

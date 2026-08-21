@@ -130,7 +130,17 @@ async def persist_invalid_event(
 
 
 async def find_event_by_dedupe_key(db: AsyncSession, dedupe_key: str) -> Event | None:
-    stmt = select(Event).where(Event.dedupe_key == dedupe_key)
+    """Find the *accepted* event holding this dedupe_key, if any.
+
+    Scoped to ``is_valid = True`` to match the partial unique index (migration
+    0011). Rejected rows retain their dedupe_key as an audit breadcrumb but must
+    never be returned here: doing so made a corrected resubmission look like an
+    edit of the rejected row, running the whole pipeline on a row still flagged
+    invalid instead of creating a clean accepted event.
+    """
+    stmt = select(Event).where(
+        Event.dedupe_key == dedupe_key, Event.is_valid.is_(True)
+    )
     return (await db.execute(stmt)).scalars().first()
 
 
@@ -155,7 +165,17 @@ async def create_event(db: AsyncSession, model: Any, payload: dict) -> tuple[Eve
         if existing.payload_hash == payload_hash:
             return existing, "duplicate"
         # Different payload_hash on the same dedupe_key => an edit (FR-2).
+        #
+        # payload_hash MUST be advanced to the incoming hash. It is the stored
+        # comparand for every future submission on this dedupe_key, so leaving it
+        # stale makes the row permanently "not equal" to its own content: the same
+        # edited payload would re-detect as an edit on every resubmission (extra
+        # `event_edited` receipts + a redundant interpret->score->act each time,
+        # growing reconciliation variance without bound), while a resubmission of
+        # the *original* payload would be misread as a true duplicate.
+        previous_payload_hash = existing.payload_hash
         existing.is_edit = True
+        existing.payload_hash = payload_hash
         existing.raw_payload = payload
         existing.identity_fields = build_identity_fields(model)
         existing.schema_version = model.schema_version
@@ -169,7 +189,8 @@ async def create_event(db: AsyncSession, model: Any, payload: dict) -> tuple[Eve
             entity_type="event",
             event_id=existing.id,
             metadata={"source": existing.source,
-                      "payload_hash": existing.payload_hash},
+                      "previous_payload_hash": previous_payload_hash,
+                      "payload_hash": payload_hash},
             status="ok",
         )
         logger.info(

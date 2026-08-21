@@ -3,16 +3,15 @@
 Rule order, confidence threshold and fuzzy algorithm are read from the versioned
 policy file ``identity_policy_v1.json`` — never hardcoded inline. Exact email /
 exact normalized phone auto-link; a fuzzy name+company match is manual-review-only
-and *never* auto-merged below the configured threshold. Because resolution admits
-a link only when the computed confidence ``>= threshold``, there is no code path
-that can auto-merge a below-threshold match.
+and never auto-merged. A fuzzy score is a reviewer aid only; it is not approval
+to merge two identities.
 """
 
 import difflib
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -22,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models import Identity, IdentityLink, ManualReviewQueue
+from app.db.models import Event, Identity, IdentityLink, ManualReviewQueue
 from app.logging import get_logger
 from app.services.receipts import write_receipt
 
@@ -31,6 +30,10 @@ logger = get_logger(__name__)
 _POLICY_DIR = Path(__file__).resolve().parent.parent / "policies"
 
 _phone_nondigits = re.compile(r"\D")
+
+
+class ReviewAlreadyResolvedError(Exception):
+    """Raised when another request resolved a review before this one acquired it."""
 
 
 def _load_policy() -> dict:
@@ -66,33 +69,42 @@ def normalize_phone(phone: str | None) -> str | None:
     return digits or None
 
 
-def fuzzy_similarity(name_a: str, name_b: str) -> Decimal:
+def fuzzy_similarity(
+    name_a: str,
+    name_b: str,
+    company_a: str | None = None,
+    company_b: str | None = None,
+) -> Decimal:
     """Similarity in [0,1] for the fuzzy_name_company rule.
 
-    Deterministic, stdlib-only: tokenize each name into lowercase tokens and
-    score the sequence with ``difflib.SequenceMatcher.ratio()``. Chosen over a
-    third-party fuzzy library (rapidfuzz/python-Levenshtein) to keep the stack
-    minimal and fully deterministic (scoring determinism is a PRD requirement);
-    token-set ratio handles typical name-with-typo cases well at this assessment
-    scale. Documented in identity_policy_v1.json.
+    Deterministic and stdlib-only: compare normalized name tokens and, when both
+    values are known, normalized company tokens, then average the two ratios.
+    Missing company data leaves a name-only *candidate suggestion*; it can never
+    authorize an automatic merge.
     """
     if not name_a or not name_b:
         return Decimal("0")
-    tokens_a = tuple(name_a.strip().lower().split())
-    tokens_b = tuple(name_b.strip().lower().split())
-    ratio = difflib.SequenceMatcher(None, tokens_a, tokens_b).ratio()
-    return Decimal(ratio).quantize(Decimal("0.01"))
+    def _ratio(left: str, right: str) -> float:
+        return difflib.SequenceMatcher(
+            None, tuple(left.strip().lower().split()), tuple(right.strip().lower().split())
+        ).ratio()
+
+    name_ratio = _ratio(name_a, name_b)
+    if company_a and company_b:
+        return Decimal((name_ratio + _ratio(company_a, company_b)) / 2).quantize(
+            Decimal("0.01")
+        )
+    return Decimal(name_ratio).quantize(Decimal("0.01"))
 
 
 def should_auto_link(score: Decimal, threshold: Decimal) -> bool:
-    """Decision rule for a fuzzy match.
+    """Return false for fuzzy matches; humans resolve every such candidate.
 
-    Boundary semantics: a score AT the threshold auto-links (``>=``); strictly
-    below it does not. Exposed as a pure function so the 0.849 / 0.85 / 0.851
-    boundary is explicitly testable and so that *any* code path that wants to
-    create a link must consult this single decision point.
+    Kept as a small compatibility helper for callers/tests that inspect the
+    policy boundary. Exact email and phone links bypass this fuzzy-only helper.
     """
-    return score >= threshold
+    del score, threshold
+    return False
 
 
 def _identity_name(identity: Identity) -> str:
@@ -110,7 +122,9 @@ async def _find_by_phone(db: AsyncSession, phone: str) -> Identity | None:
     return (await db.execute(stmt)).scalars().first()
 
 
-async def _find_fuzzy_candidate(db: AsyncSession, name: str) -> Identity | None:
+async def _find_fuzzy_candidate(
+    db: AsyncSession, name: str, company: str | None
+) -> Identity | None:
     """Return the best existing identity for a fuzzy name match, if any.
 
     Ties are broken by oldest first; the returned identity is the top similarity
@@ -123,16 +137,61 @@ async def _find_fuzzy_candidate(db: AsyncSession, name: str) -> Identity | None:
     best: Identity | None = None
     best_score = Decimal("0")
     for ident in identities:
-        score = fuzzy_similarity(name, _identity_name(ident))
+        score = fuzzy_similarity(name, _identity_name(ident), company, ident.primary_company)
         if score > best_score:
             best_score = score
             best = ident
     return best
 
 
+async def _upsert_identity_link(
+    db: AsyncSession,
+    *,
+    event_id: Any,
+    identity_id: Any,
+    match_confidence: Decimal,
+    match_rule: str,
+) -> IdentityLink:
+    """Create or update the one canonical identity link for an event.
+
+    The unique ``identity_links.event_id`` constraint is the final race guard;
+    ordinary edits update the existing link in place rather than creating a
+    second association.
+    """
+    link = (
+        await db.execute(select(IdentityLink).where(IdentityLink.event_id == event_id))
+    ).scalars().first()
+    if link is None:
+        link = IdentityLink(
+            identity_id=identity_id,
+            event_id=event_id,
+            match_confidence=match_confidence,
+            match_rule=match_rule,
+        )
+        db.add(link)
+    else:
+        link.identity_id = identity_id
+        link.match_confidence = match_confidence
+        link.match_rule = match_rule
+    return link
+
+
 async def _queue_review(
     db: AsyncSession, event_id: Any, candidate_identity_id: Any, reason: str, score: Decimal
 ) -> ManualReviewQueue:
+    existing = (
+        await db.execute(
+            select(ManualReviewQueue).where(ManualReviewQueue.event_id == event_id)
+        )
+    ).scalars().first()
+    if existing is not None:
+        # An edited resubmission can still be unresolved. Keep one work item per
+        # event and refresh the candidate/reason instead of violating the unique
+        # event_id invariant or producing duplicate reviewer work.
+        existing.candidate_identity_id = candidate_identity_id
+        existing.reason = reason
+        return existing
+
     start = time.monotonic()
     entry = ManualReviewQueue(
         event_id=event_id,
@@ -181,7 +240,8 @@ async def _link_via_exact(
     re-SELECTs the winner's row and links to it — mirroring ingest.create_event.
     """
     start = time.monotonic()
-    display_name = (event.identity_fields or {}).get("name")
+    fields = event.identity_fields or {}
+    display_name = fields.get("name")
     # The event row is already committed by the ingest step, so its id is stable
     # and safe to hold across a rollback (rollback would otherwise expire the ORM
     # object, and a lazy re-read of event.id would raise MissingGreenlet).
@@ -223,11 +283,13 @@ async def _link_via_exact(
                 email=identity.primary_email,  # PII — redacted by _pii_redactor
                 name=identity.display_name,     # PII — redacted by _pii_redactor
             )
-    link = IdentityLink(
-        identity_id=identity.id, event_id=event_id,
-        match_confidence=Decimal("1.00"), match_rule=match_rule,
+    await _upsert_identity_link(
+        db,
+        event_id=event_id,
+        identity_id=identity.id,
+        match_confidence=Decimal("1.00"),
+        match_rule=match_rule,
     )
-    db.add(link)
     await db.commit()
     return {"status": "linked", "identity_id": identity.id,
             "rule": match_rule, "confidence": Decimal("1.00")}
@@ -243,9 +305,21 @@ async def resolve_identity(db: AsyncSession, event: Any) -> dict:
     (interpret/score/act must not run) until a reviewer resolves the entry.
     """
     start = time.monotonic()
-    policy = _load_policy()
-    threshold = Decimal(str(policy["confidence_threshold"]))
     fields: dict = event.identity_fields or {}
+
+    existing_link = (
+        await db.execute(select(IdentityLink).where(IdentityLink.event_id == event.id))
+    ).scalars().first()
+    if existing_link is not None:
+        # An edit re-runs classification/scoring/routing but retains its already
+        # adjudicated canonical identity. Re-resolving could otherwise turn one
+        # event into a second review item or a conflicting identity assignment.
+        return {
+            "status": "linked",
+            "identity_id": existing_link.identity_id,
+            "rule": existing_link.match_rule,
+            "confidence": existing_link.match_confidence,
+        }
 
     # Phase 1 events carry identity fields keyed by the Event model's
     # build_identity_fields (email/phone/name/display_name/handle/company).
@@ -254,7 +328,9 @@ async def resolve_identity(db: AsyncSession, event: Any) -> dict:
         return await _link_via_exact(
             db=db, event=event, match_rule="exact_email",
             find=_find_by_email, value=email,
-            create=lambda db, nm: Identity(primary_email=email, display_name=nm),
+            create=lambda db, nm: Identity(
+                primary_email=email, display_name=nm, primary_company=fields.get("company")
+            ),
         )
 
     phone = normalize_phone(fields.get("phone"))
@@ -262,15 +338,18 @@ async def resolve_identity(db: AsyncSession, event: Any) -> dict:
         return await _link_via_exact(
             db=db, event=event, match_rule="exact_phone",
             find=_find_by_phone, value=phone,
-            create=lambda db, nm: Identity(primary_phone=phone, display_name=nm),
+            create=lambda db, nm: Identity(
+                primary_phone=phone, display_name=nm, primary_company=fields.get("company")
+            ),
         )
 
     name = (fields.get("name") or fields.get("display_name") or "").strip()
     if name:
-        candidate = await _find_fuzzy_candidate(db, name)
+        company = (fields.get("company") or "").strip() or None
+        candidate = await _find_fuzzy_candidate(db, name, company)
         if candidate is None:
             # No existing identities to be ambiguous with -> create fresh.
-            identity = Identity(display_name=name)
+            identity = Identity(display_name=name, primary_company=company)
             db.add(identity)
             await db.flush()  # populate identity.id before linking
             await write_receipt(
@@ -295,27 +374,21 @@ async def resolve_identity(db: AsyncSession, event: Any) -> dict:
                 match_rule="fuzzy_name_company",
                 name=identity.display_name,  # PII — redacted by _pii_redactor
             )
-            link = IdentityLink(
-                identity_id=identity.id, event_id=event.id,
-                match_confidence=Decimal("1.00"), match_rule="fuzzy_name_company",
+            await _upsert_identity_link(
+                db,
+                event_id=event.id,
+                identity_id=identity.id,
+                match_confidence=Decimal("1.00"),
+                match_rule="fuzzy_name_company",
             )
-            db.add(link)
             await db.commit()
             await db.refresh(identity)
             return {"status": "linked", "identity_id": identity.id,
                     "rule": "fuzzy_name_company", "confidence": Decimal("1.00")}
-        score = fuzzy_similarity(name, _identity_name(candidate))
-        if should_auto_link(score, threshold):
-            link = IdentityLink(
-                identity_id=candidate.id, event_id=event.id,
-                match_confidence=score, match_rule="fuzzy_name_company",
-            )
-            db.add(link)
-            await db.commit()
-            return {"status": "linked", "identity_id": candidate.id,
-                    "rule": "fuzzy_name_company", "confidence": score}
-        # Below threshold -> manual review, NEVER auto-merge.
-        reason = f"fuzzy_name_match_below_threshold:{score}"
+        score = fuzzy_similarity(name, _identity_name(candidate), company, candidate.primary_company)
+        # Fuzzy matching only proposes a candidate. The policy deliberately makes
+        # every candidate human-reviewed, regardless of its score.
+        reason = f"fuzzy_name_company_manual_review:{score}"
         entry = await _queue_review(db, event.id, candidate.id, reason, score)
         await db.commit()
         await db.refresh(entry)
@@ -356,15 +429,29 @@ async def resolve_review(
     """Resolve a manual-review entry: ``merge_into`` an identity or ``create_new``.
 
     On resolution the entry is closed (``status="resolved"``, ``resolved_at`` set)
-    and the event is linked to the chosen identity, resuming its pipeline. The
-    returned descriptor includes the resolved ``identity_id``; downstream pipeline
-    stages (interpret/score/act, later phases) continue from here.
+    and the event is linked to the chosen identity. The returned descriptor carries
+    the resolved ``identity_id`` and the ``event_id`` so the caller can resume the
+    halted pipeline (interpret -> score -> act) for that event.
+
+    Both branches commit exactly once, so the review closure, the identity link,
+    and every receipt land in a single transaction — a crash mid-resolution cannot
+    leave a linked-but-unreceipted identity behind.
     """
     entry = (
-        await db.execute(select(ManualReviewQueue).where(ManualReviewQueue.id == review_id))
+        await db.execute(
+            select(ManualReviewQueue)
+            .where(ManualReviewQueue.id == review_id)
+            .with_for_update()
+        )
     ).scalars().first()
     if entry is None:
         raise LookupError("review not found")
+    if entry.status != "pending":
+        raise ReviewAlreadyResolvedError("review already resolved")
+
+    start = time.monotonic()
+    event_id = entry.event_id
+    resolved_at = datetime.now(timezone.utc)
 
     if decision == "merge_into":
         if identity_id is None:
@@ -376,45 +463,92 @@ async def resolve_review(
             raise LookupError("candidate identity not found")
         entry.resolution = decision
         entry.status = "resolved"
-        entry.resolved_at = datetime.now()
-        link = IdentityLink(
-            identity_id=target.id, event_id=entry.event_id,
-            match_confidence=Decimal("1.00"), match_rule="manual_review_resolve",
+        entry.resolved_at = resolved_at
+        await _upsert_identity_link(
+            db,
+            event_id=event_id,
+            identity_id=target.id,
+            match_confidence=Decimal("1.00"),
+            match_rule="manual_review_resolve",
         )
-        db.add(link)
         await write_receipt(
             db,
             action_type="review_resolved",
             entity_id=entry.id,
             entity_type="manual_review",
-            event_id=entry.event_id,
+            event_id=event_id,
             identity_id=target.id,
             metadata={"resolution": decision, "review_id": str(entry.id)},
         )
         await db.commit()
-        return {"status": "resolved", "identity_id": target.id, "review_id": entry.id}
+        return {"status": "resolved", "identity_id": target.id,
+                "review_id": review_id, "event_id": event_id}
 
-    # create_new
-    new_identity = Identity(display_name="review_resolved")
+    # create_new. The reviewer judged the fuzzy candidate to be a different person,
+    # so this mints a brand-new canonical identity — and therefore owes an
+    # `identity_created` receipt exactly like the two automatic creation paths
+    # above (_link_via_exact and the fuzzy-no-candidate branch). Omitting it
+    # desynchronized the identities <-> identity_created reconciliation pair the
+    # first time a reviewer chose this branch, which fails FR-10 and Success
+    # Criterion #2 (variance must be 0).
+    #
+    # The display name is carried over from the event's identity fields rather
+    # than a "review_resolved" placeholder, which was leaking into API output as
+    # if it were the contact's name. Manual review is only reachable via the
+    # fuzzy-name or no-identity-fields paths, so there is never an email/phone to
+    # promote here — display_name is the only field available, and may be None.
+    event = (
+        await db.execute(select(Event).where(Event.id == event_id))
+    ).scalars().first()
+    fields: dict = (event.identity_fields or {}) if event is not None else {}
+    display_name = (fields.get("name") or fields.get("display_name") or "").strip() or None
+    primary_company = (fields.get("company") or "").strip() or None
+
+    new_identity = Identity(display_name=display_name, primary_company=primary_company)
     db.add(new_identity)
-    await db.commit()
-    await db.refresh(new_identity)
+    await db.flush()  # populate new_identity.id before the link/receipts reference it
+    await write_receipt(
+        db,
+        action_type="identity_created",
+        entity_id=new_identity.id,
+        entity_type="identity",
+        event_id=event_id,
+        identity_id=new_identity.id,
+        metadata={"match_rule": "manual_review_resolve", "match_confidence": "1.00",
+                  "review_id": str(review_id)},
+    )
+    logger.info(
+        "identity_created",
+        input_id=str(event_id),
+        decision="linked",
+        reason="new identity created by manual-review resolution (create_new)",
+        action="identity_created",
+        result="ok",
+        error=None,
+        timing_ms=round((time.monotonic() - start) * 1000, 2),
+        identity_id=str(new_identity.id),
+        match_rule="manual_review_resolve",
+        name=new_identity.display_name,  # PII — redacted by _pii_redactor
+    )
     entry.resolution = decision
     entry.status = "resolved"
-    entry.resolved_at = datetime.now()
-    link = IdentityLink(
-        identity_id=new_identity.id, event_id=entry.event_id,
-        match_confidence=Decimal("1.00"), match_rule="manual_review_resolve",
+    entry.resolved_at = resolved_at
+    await _upsert_identity_link(
+        db,
+        event_id=event_id,
+        identity_id=new_identity.id,
+        match_confidence=Decimal("1.00"),
+        match_rule="manual_review_resolve",
     )
-    db.add(link)
     await write_receipt(
         db,
         action_type="review_resolved",
         entity_id=entry.id,
         entity_type="manual_review",
-        event_id=entry.event_id,
+        event_id=event_id,
         identity_id=new_identity.id,
         metadata={"resolution": decision, "review_id": str(entry.id)},
     )
     await db.commit()
-    return {"status": "resolved", "identity_id": new_identity.id, "review_id": entry.id}
+    return {"status": "resolved", "identity_id": new_identity.id,
+            "review_id": review_id, "event_id": event_id}

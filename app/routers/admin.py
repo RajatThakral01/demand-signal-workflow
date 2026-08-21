@@ -21,12 +21,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models import DeadLetterQueue, Event, IdentityLink, Interpretation
+from app.db.models import DeadLetterQueue, Event, IdentityLink
 from app.db.session import get_db_session
-from app.services.act import act
-from app.services.interpret import InterpretError, classify_event
+from app.services.interpret import InterpretError
+from app.services.pipeline import run_downstream
 from app.services.receipts import write_receipt
-from app.services.score import score_event
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -95,12 +94,14 @@ async def replay_event(
                                      "detail": f"expected 1 identity link, found {len(links)}"})
     identity_id = links[0].identity_id
 
-    # Re-run the pipeline, reusing the exact service functions (and their receipts:
-    # interpreted / scored / lead_created-or-updated / routed-or-route_updated /
-    # attributed_created-or-updated). classify_event upserts the Interpretation row
-    # so a replay never creates a duplicate interpretations row.
+    # Re-run the pipeline through the shared runner (the same one ingest and the
+    # manual-review resume use), so a replayed event is interpreted, scored and
+    # routed by identical code — and by identical receipts (interpreted / scored /
+    # lead_created-or-updated / routed-or-route_updated / attributed_*). Every
+    # stage upserts against a DB unique constraint, so a replay after a partial
+    # success cannot double-write downstream.
     try:
-        await classify_event(db, event)
+        outcome = await run_downstream(db, event, identity_id)
     except InterpretError:
         # The replay attempt itself failed (provider still down). classify_event's
         # exhaustion path already wrote a NEW dead_letter_queue row + dead_lettered
@@ -109,17 +110,10 @@ async def replay_event(
             status_code=503, detail={"error": "replay_failed",
                                      "detail": "interpret still failing; event re-dead-lettered"})
 
-    interp = (
-        await db.execute(select(Interpretation).where(
-            Interpretation.event_id == event_uuid))
-    ).scalars().first()
-    if interp is None:
+    if outcome["interpretation"] is None:
         raise HTTPException(status_code=409, detail={"error": "replay_failed"})
 
-    score_row = await score_event(db, event, identity_id, interp)
-    await db.commit()  # score + `scored` receipt
-
-    act_result = await act(db, event, identity_id, score_row)  # commits internally
+    act_result = outcome["act_result"] or {}
 
     # Mark the dead-letter resolved and receipt the mutation (FR-9). Reconciliation
     # pairs DLQ row-count vs `dead_lettered` receipts only, so flipping resolved

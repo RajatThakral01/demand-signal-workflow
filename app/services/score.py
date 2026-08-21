@@ -12,9 +12,9 @@ import time
 import uuid
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -119,11 +119,11 @@ async def score_event(
     identity_id: uuid.UUID | None,
     interpretation: Interpretation,
 ) -> Score:
-    """Compute and persist a score for an event (upsert by event_id).
+    """Compute and persist exactly one score per event.
 
-    Does NOT commit — the caller controls the transaction (single commit with the
-    surrounding pipeline). On an edited resubmission the existing score row is
-    updated in place rather than inserting a second (event_id is not unique).
+    PostgreSQL ``ON CONFLICT`` makes the upsert atomic under concurrent replay or
+    review-resolution requests.  The caller owns the commit so the score and its
+    receipt remain one transaction.
     """
     start = time.monotonic()
     policy = _load_policy()
@@ -136,29 +136,23 @@ async def score_event(
         policy=policy,
     )
 
+    policy_version = policy.get("policy_version", settings.scoring_policy_version)
+    values = {
+        "event_id": event.id,
+        "identity_id": identity_id,
+        "score": score_value,
+        "features": features,
+        "policy_version": policy_version,
+        "decision": decision,
+    }
+    stmt = pg_insert(Score).values(**values).on_conflict_do_update(
+        index_elements=["event_id"],
+        set_={key: value for key, value in values.items() if key != "event_id"},
+    )
+    await db.execute(stmt)
     row = (
         await db.execute(select(Score).where(Score.event_id == event.id))
-    ).scalars().first()
-    if row is None:
-        row = Score(
-            event_id=event.id,
-            identity_id=identity_id,
-            score=score_value,
-            features=features,
-            policy_version=policy.get("policy_version", settings.scoring_policy_version),
-            decision=decision,
-        )
-        db.add(row)
-    else:
-        row.identity_id = identity_id
-        row.score = score_value
-        row.features = features
-        row.policy_version = policy.get(
-            "policy_version", settings.scoring_policy_version
-        )
-        row.decision = decision
-
-    await db.flush()  # populate row.id before the receipt references it
+    ).scalars().one()
     logger.info(
         "score_applied",
         input_id=str(event.id),
