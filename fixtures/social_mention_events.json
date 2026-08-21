@@ -1,0 +1,86 @@
+[
+  {
+    "source": "social_mention",
+    "external_event_id": "soc-clear-positive-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T13:00:00+00:00",
+    "consent": false,
+    "display_name": "Linus Torvalds",
+    "handle": "torvalds",
+    "text": "We are considering your product for our open source team, need pricing and integration details for GitHub SSO.",
+    "topic": "pricing"
+  },
+  {
+    "source": "social_mention",
+    "external_event_id": "soc-clear-positive-002",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T13:01:00+00:00",
+    "consent": false,
+    "display_name": "Ada Lovelace",
+    "handle": "adalove",
+    "text": "Excited about your onboarding flow, can you share docs?",
+    "topic": "onboarding"
+  },
+  {
+    "source": "social_mention",
+    "external_event_id": "soc-duplicate-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T13:02:00+00:00",
+    "consent": false,
+    "display_name": "Grace Hopper",
+    "handle": "ghopper",
+    "text": "Mentioning your competitor Acme Corp as alternative, thoughts?"
+  },
+  {
+    "source": "social_mention",
+    "external_event_id": "soc-duplicate-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T13:02:00+00:00",
+    "consent": false,
+    "display_name": "Grace Hopper",
+    "handle": "ghopper",
+    "text": "Mentioning your competitor Acme Corp as alternative, thoughts?"
+  },
+  {
+    "source": "social_mention",
+    "external_event_id": "soc-ambiguous-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T13:03:00+00:00",
+    "consent": false,
+    "display_name": "Ada Lovlace",
+    "handle": "ada_typo",
+    "text": "Pricing mention with typo name",
+    "topic": "pricing"
+  },
+  {
+    "source": "social_mention",
+    "external_event_id": "soc-invalid-missing-handle",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T13:04:00+00:00",
+    "consent": false,
+    "display_name": "NoHandle",
+    "text": "hi"
+  },
+  {
+    "source": "social_mention",
+    "external_event_id": "soc-short-text-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T13:05:00+00:00",
+    "consent": false,
+    "display_name": "Shorty Social",
+    "handle": "shorty",
+    "text": "hey",
+    "topic": "other"
+  },
+  {
+    "source": "social_mention",
+    "external_event_id": "soc-provider-failure-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T13:06:00+00:00",
+    "consent": false,
+    "display_name": "Failure Social",
+    "handle": "failure_soc",
+    "text": "This social mention will be dead-lettered for failure testing via simulate-failure.",
+    "topic": "pricing"
+  }
+]

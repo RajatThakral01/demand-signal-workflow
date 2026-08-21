@@ -1,0 +1,112 @@
+[
+  {
+    "source": "web_form",
+    "external_event_id": "wf-clear-positive-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T12:00:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-web-001",
+    "name": "Ada Lovelace",
+    "email": "ada.lovelace@example.com",
+    "company": "Analytical Engines",
+    "message": "Hi, I would like detailed pricing for your enterprise tier for 50 seats including support and integration options."
+  },
+  {
+    "source": "web_form",
+    "external_event_id": "wf-clear-positive-002",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T12:01:00+00:00",
+    "consent": true,
+    "name": "Grace Hopper",
+    "email": "grace.hopper@example.com",
+    "company": "COBOL Labs",
+    "message": "We are evaluating your product for our team and have questions about SSO and SAML integration."
+  },
+  {
+    "source": "web_form",
+    "external_event_id": "wf-duplicate-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T12:02:00+00:00",
+    "consent": true,
+    "name": "Alan Turing",
+    "email": "alan.turing@example.com",
+    "company": "Bletchley Park",
+    "message": "Need pricing for startup plan, 10 users, annual billing."
+  },
+  {
+    "source": "web_form",
+    "external_event_id": "wf-duplicate-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T12:02:00+00:00",
+    "consent": true,
+    "name": "Alan Turing",
+    "email": "alan.turing@example.com",
+    "company": "Bletchley Park",
+    "message": "Need pricing for startup plan, 10 users, annual billing."
+  },
+  {
+    "source": "web_form",
+    "external_event_id": "wf-edited-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T12:03:00+00:00",
+    "consent": true,
+    "name": "Ada Lovelace",
+    "email": "ada.edited@example.com",
+    "company": "Analytical Engines",
+    "message": "Original message about pricing for 20 seats."
+  },
+  {
+    "source": "web_form",
+    "external_event_id": "wf-edited-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T12:04:00+00:00",
+    "consent": true,
+    "name": "Ada Lovelace",
+    "email": "ada.edited@example.com",
+    "company": "Analytical Engines",
+    "message": "Edited message: corrected to 100 seats enterprise with premium support and onboarding."
+  },
+  {
+    "source": "web_form",
+    "external_event_id": "wf-invalid-bad-email",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T12:05:00+00:00",
+    "consent": false,
+    "name": "Bad Email",
+    "email": "not-an-email",
+    "company": "Nowhere",
+    "message": "Hello"
+  },
+  {
+    "source": "web_form",
+    "external_event_id": "wf-ambiguous-fuzzy",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T12:06:00+00:00",
+    "consent": false,
+    "name": "Ada Lovlace",
+    "company": "Analytical Engins",
+    "message": "Love your product pricing?"
+  },
+  {
+    "source": "web_form",
+    "external_event_id": "wf-short-text",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T12:07:00+00:00",
+    "consent": true,
+    "name": "Shorty",
+    "email": "shorty@example.com",
+    "company": "Tiny",
+    "message": "hi"
+  },
+  {
+    "source": "web_form",
+    "external_event_id": "wf-provider-failure",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T12:08:00+00:00",
+    "consent": true,
+    "name": "Failure Test",
+    "email": "failure@example.com",
+    "company": "Test Corp",
+    "message": "This event will be forced to dead-letter via simulate-failure for provider failure testing."
+  }
+]

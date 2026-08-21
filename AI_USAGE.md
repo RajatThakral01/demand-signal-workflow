@@ -871,3 +871,58 @@ triggers the LIVE call, and a migration note for `0011`.
 
 ---
 
+### Session: Phase 8 follow-up — integrity hardening + PRD edge cases + concurrent resolve fix
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0018` + `DAXVORA-RAJAT-2026-08-A01-S0019`
+- **Date:** 2026-08-21
+- **Provider / model:** Muse Spark, `muse-spark-1.2` (no OpenRouter call)
+- **What was generated:**
+  - `0012_phase8_integrity_hardening` (`primary_company`, `uq_identity_links_event_id`, `uq_manual_review_queue_event_id`, `uq_scores_event_id`, drop `ix_scores_event_id`, `text()` for partial index) + `models.py` uniques.
+  - `resolve.py` fuzzy `name+company` averaged, `should_auto_link→False` (always manual_review), `_upsert_identity_link`, `_queue_review` idempotent, `resolve_identity` short-circuit on existing link, `merge_into`/`create_new` company-aware, fix `S0018` concurrent race via `UPDATE ... WHERE status='pending' RETURNING` (`ReviewAlreadyResolvedError` atomic).
+  - `score.py` PG `ON CONFLICT` upsert, `conftest.py` hard-assign `ADMIN_API_KEY`.
+  - `tests/unit/test_integrity_constraints.py` (3), `test_resolve_helpers` updated, `test_prd_edge_cases.py` 56 black-box PRD tests (FR-1..FR-11, Flows, Error States, privacy).
+  - Fix for `test_prd_edge_cases` 3 failures: merge_into used dissimilar name (now identical `Ada Lovelace` to park), `get_events` 5-token msg `unknown→null` (now >8 tokens), concurrent manual-review `[200,200]`→`[200,409]` via atomic claim.
+- **Verification:** `ruff` 3 F401 fixed → clean, `compileall` clean, `alembic upgrade head` empty DB → `0012` clean, `pytest 194 passed 1 skipped` (was 138 + 56 PRD). The concurrent race was not caught by prior suite; new PRD suite exposed it and now asserts `[200,409]`.
+
+---
+
+### Session: Phase 9 — Dashboard (Evaluator Tooling, PRD §8)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0020`
+- **Date:** 2026-08-21
+- **Provider / model:** Muse Spark, `muse-spark-1.2` (no OpenRouter call)
+- **What was generated:**
+  - `app/services/summarize.py` (fresh SQL by `since`/`until`, no cache) — `total_events/valid/invalid`, `by_source`, `by_decision`, `by_status`, `total_leads`, `pending_reviews`, `dead_letters`.
+  - `GET /api/v1/dashboard/summary` (`app/routers/dashboard.py`) — JSON, mirrors reconciliation window.
+  - `app/routers/pages.py` (new, `Path`-resolved `app/templates`) — `GET /`→302 `/dashboard`, `GET /dashboard` (summary+live reconciliation badge, not hardcoded, 3 tables + queue links), `GET /dashboard/leads` + `/{id}` (filters `status/source/decision`, `escalated` on-read, `score/features`, `attribution`), `GET /dashboard/manual-review` (pending+resolved, `reason/candidate`, `Create new`/`Merge into` forms `POST /dashboard/manual-review/{id}/resolve` via `Form` → `resolve_review` atomic + `run_downstream` → 303), `GET /dashboard/dead-letter?resolved=` (oldest-first, `replay_url`).
+  - `app/templates/{base,dashboard_summary,leads_list,lead_detail,manual_review,dead_letter}.html` (semantic `<table>`, `<nav>`, headings, system font, `PASS/FAIL` badges, `SIMULATED/LIVE` + Evaluation ID), `app/static/style.css`.
+  - `app/main.py` — `StaticFiles` mount at `/static` (Path-resolved, works in container), `pages_router` included.
+  - `tests/integration/test_dashboard_pages.py` — 12 tests: summary JSON keys, HTML `<table>/<nav>/badge/SIMULATED`, counts, root redirect, leads list/filter/detail 404, manual-review queue+form resolve, dead-letter listing+`replay_url`+resolved filter, `style.css`.
+- **Verification:** `ruff` 1 F401 (`_PAIRS`) fixed → clean, `compileall` clean, `pytest 206 passed 1 skipped` (194+12), `/dashboard` HTML contains `<table` + `PASS/FAIL` badge live from `reconciliation`, not hardcoded.
+
+---
+
+### Session: Phase 10 — Full Integration Sweep (PRD §11)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0021`
+- **Date:** 2026-08-21
+- **Provider / model:** Muse Spark, `muse-spark-1.2` (no OpenRouter call; performance tests mocked for determinism)
+- **What was generated:**
+  - `fixtures/web_form_events.json` (10 events: 2 clear positives, 1 duplicate pair, 1 edited pair, 1 invalid bad email, 1 ambiguous fuzzy, 1 short `hi`→`unknown`, 1 provider-failure), `social_mention_events.json` (8), `email_engagement_events.json` (10), `fixtures/generate_and_post.py` (requests POST to `POST /api/v1/events`, SIMULATED label, `--dry-run`, prints `flag` + reconciliation `variance`/`status`, exit 0/1).
+  - `tests/integration/test_phase10_sweep.py` — 12 tests for the 9 required E2E flows:
+    1. `test_phase10_happy_path_per_source` `parametrize` ×3 (web_form/social_mention/email_engagement) → `lead/route/score/attribution` + HTML detail
+    2. `test_phase10_duplicate_concurrency_exactly_one_lead` (HTTP + `get_session_factory` + `ingest.create_event` concurrent `asyncio.gather`, asserts exactly 1 `Lead` per identity, duplicate no-op)
+    3. `test_phase10_edited_resubmission_distinguishable_from_duplicate` (is_edit vs duplicate, `event_created:1` `event_edited:1`, 1 lead, payload updated)
+    4. `test_phase10_manual_review_both_receipts_and_pipeline_resumes` (parks → `review_queued:1` `review_resolved:0` → `create_new` → both `1`, `pipeline_status:resumed`, `Score/IdentityLink` present)
+    5. `test_phase10_provider_failure_dead_letter_and_replay` (`APITimeoutError` mock 3 retries → `202 dead_letter`, visible `GET /dead-letter`, no `Score`, replay → `replayed` 1 lead/route/score, `resolved:true`, `dead_letter_resolved` receipt, 2nd replay `409`)
+    6. `test_phase10_attribution_out_of_order` (A `NOW`, B `+5h`, C `-5h` arrives last → `first=-5h/camp-c` `last=+5h/camp-b`, HTML `First touch`)
+    7. `test_phase10_reconciliation_hand_computed_variance_zero` (6-step hand-computed: A valid, B duplicate, C invalid, D valid, E edit, F fuzzy `Hand Solo` → `create_new`; manual counts `events_created/events_edited/...` vs `reconciliation` rows, every `variance 0`, `summary` cross-check)
+    8. *(clean-environment run — see verification below, not a pytest)*
+    9. `test_phase10_perf_single_event_under_3s` (`72.23 ms <3000`), `test_phase10_perf_dashboard_under_1s_for_500_events` (seed 500 distinct `wf` via 10×50 `POST`, then `summary 22.95 ms`, `reconciliation 19.75 ms`, `dashboard HTML 32.06 ms` all `<1000` — printed)
+  - `tests/integration/test_phase10_acceptance_coverage.py` — row-by-row `ACCEPTANCE_ROWS` 11 features + `EVALUATOR_GROUPS` 5 groups, asserts every `covered:true` and fixture/file exists, prints markdown table for report.
+  - `scripts/clean_run.sh` — `DROP/CREATE dsw_test`, `\dt`, `time pytest -q`, wall-clock `<300s`, `docker compose config` check.
+- **Verification:**
+  - `pytest tests/integration/test_phase10_sweep.py -v` → `12 passed in 10.51s`, `pytest -q` full `221 passed 1 skipped in 24.70s` (206 prior + 12 sweep + 3 coverage), `ruff` clean, `compileall` clean.
+  - Perf: `single ingest→act 72.23 ms (target <3000)`, `summary 22.95 ms`, `reconciliation 19.75 ms`, `dashboard HTML 32.06 ms` (all `<1000` for 500 events, PRD §5).
+  - Clean run: `bash scripts/clean_run.sh` → `DROP/CREATE`, `pytest -q 218 passed 1 skipped in 24.91s`, `time` `real 26.74 / wall-clock 28s (<300s) PASS`, `docker compose config OK`. `fixtures/generate_and_post.py --dry-run` prints every `flag` and `Reconciliation: PASS variance 0`.
+  - Acceptance: every `ACCEPTANCE_ROWS` `covered:true` via dedicated test; every `EVALUATOR_GROUPS` has fixture + test (e.g. `wf-clear-positive-001`, `soc-ambiguous-001`, `em-duplicate-001`, `wf-provider-failure`).
+
+---
+

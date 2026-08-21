@@ -90,7 +90,7 @@
         "requirements.txt"
       ],
       "human_modified_files": [],
-      "verification": "pytest against real test Postgres (dsw_test on local socket): 26 passed, 0 failed. malformed→400 not persisted; schema-invalid→200 is_valid=false persisted; exact duplicate→duplicate:true one row; edit→is_edit:true updated no 2nd row; concurrency asyncio.gather → ['created','duplicate'] one row; direct-insert of same dedupe_key raises IntegrityError proving DB (not app) enforcement; alembic upgrade head + \\d events show events_dedupe_key_key UNIQUE CONSTRAINT"
+      "verification": "pytest against real test Postgres (dsw_test on local socket): 26 passed, 0 failed. malformed\u2192400 not persisted; schema-invalid\u2192200 is_valid=false persisted; exact duplicate\u2192duplicate:true one row; edit\u2192is_edit:true updated no 2nd row; concurrency asyncio.gather \u2192 ['created','duplicate'] one row; direct-insert of same dedupe_key raises IntegrityError proving DB (not app) enforcement; alembic upgrade head + \\d events show events_dedupe_key_key UNIQUE CONSTRAINT"
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0003",
@@ -395,7 +395,7 @@
       ],
       "human_modified_files": [],
       "summary": "DeadLetterQueue model (table dead_letter_queue: id PK, event_id FK, stage, error, retry_count, resolved default false, created_at); Alembic 0010_dead_letter_queue (down_revision 0009). interpret.py: on retry exhaustion (bounded by _is_retryable) the event is dead-lettered - a dead_letter_queue row (stage=\"interpret\", sanitized/truncated error <=500 chars, retry_count=actual attempts) plus a dead_lettered receipt in a SINGLE commit (FR-9 atomicity), replacing the previous interpreted/status=error receipt. Per-attempt backoffs logged via structlog, not receipted. Retry config env-configurable: retry_max_attempts (default 3) and retry_base_delay_ms (default 500) from RETRY_MAX_ATTEMPTS/RETRY_BASE_DELAY_MS. events.py + schemas/responses.py: exhaustion returns status=\"dead_letter\", stage=\"interpret\"; pipeline halts (confirmed short-circuit already prevented score/act). dashboard.py: added dead_letter_queue reconciliation pair (dead_letter_queue <-> dead_lettered). Finding: \"error\" is never used as an action_type anywhere (only as a status); retiring error-as-action_type was a no-op; exhaustion receipt uses action_type=\"dead_lettered\", status=\"error\". Decision: dead_letter_queue IS a reconciliation pair (row vs dead_lettered receipt, written atomically 1:1) added deliberately and disclosed.",
-      "verification": "New tests tests/integration/test_dead_letter.py: (1) exhaustion test mocking openai.APITimeoutError with retry_max_attempts=3 asserts EXACTLY 3 attempts, one DLQ row (stage=interpret, retry_count=3, resolved=false), one dead_lettered receipt, NO interpreted/status=error receipt, no fabricated unknown interpretation, no score/lead/route rows (pipeline halted); API status=\"dead_letter\", stage=\"interpret\". (2) retry-budget test retry_max_attempts=1 -> exactly 1 attempt, retry_count=1. Dead-letter tests 2 passed; reconciliation file 6 passed (new pair variance 0); full suite 94 passed, 1 skipped locally and in-container. Addendum (PRD-conformance fix caught in review): dead-letter POST /events now returns 202 (was 200) per PRD §4 Error States, via injected Response setting status_code=202 on the dead-letter branch only; test_exhaustion_dead_letters_event_and_halts_pipeline updated to assert 202; full suite still 94 passed, 1 skipped locally and in-container."
+      "verification": "New tests tests/integration/test_dead_letter.py: (1) exhaustion test mocking openai.APITimeoutError with retry_max_attempts=3 asserts EXACTLY 3 attempts, one DLQ row (stage=interpret, retry_count=3, resolved=false), one dead_lettered receipt, NO interpreted/status=error receipt, no fabricated unknown interpretation, no score/lead/route rows (pipeline halted); API status=\"dead_letter\", stage=\"interpret\". (2) retry-budget test retry_max_attempts=1 -> exactly 1 attempt, retry_count=1. Dead-letter tests 2 passed; reconciliation file 6 passed (new pair variance 0); full suite 94 passed, 1 skipped locally and in-container. Addendum (PRD-conformance fix caught in review): dead-letter POST /events now returns 202 (was 200) per PRD \u00a74 Error States, via injected Response setting status_code=202 on the dead-letter branch only; test_exhaustion_dead_letters_event_and_halts_pipeline updated to assert 202; full suite still 94 passed, 1 skipped locally and in-container."
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0016",
@@ -442,6 +442,76 @@
       "human_modified_files": [],
       "summary": "Audit of Phases 0-8 against PRD v1.2 and the implementation plan, then fixes for every issue found (6 defects reported + a 7th surfaced while fixing). D1 payload_hash not advanced on edit (ingest.py): the column is the stored comparand for future submissions on the same dedupe_key, so the row stayed permanently unequal to its own content - the edited payload re-detected as an edit forever (extra event_edited receipt + redundant interpret/score/act each time, unbounded reconciliation variance) while the original payload was misread as a duplicate, silently discarding a revert; fix advances the hash and records previous_payload_hash + payload_hash in the receipt metadata. D2 create_new review resolution minted an Identity with no identity_created receipt (FR-9 violation; identities vs identity_created pair permanently nonzero); fix writes the receipt with match_rule=manual_review_resolve, match_confidence=1.00, review_id, plus the structured log line, and derives display_name from the event's identity_fields. D3 resolving a manual review never resumed the pipeline (Flow 3 step 4): ingest halts an ambiguous event before interpret, so resolution is the only thing that can un-halt it, but resolve only linked the identity - the event was left with no interpretation/score/lead/route/touch permanently. Fix extracts app/services/pipeline.py::run_downstream as the single shared interpret->score->act runner and points all three entry points at it (ingest, manual-review resume, admin replay) so they cannot drift; ingest and resume surface exhausted retries as 202 status=dead_letter, replay keeps 503 replay_failed; resolve now returns pipeline_status/label/score/decision_outcome/lead_id/lead_op/queue/rule_matched/sla_deadline/attribution_touch_id per the PRD API table. D4 UNIQUE(events.dedupe_key) was global, not scoped to accepted rows - two symptoms from one cause: (a) resubmitting the same schema-invalid payload raised IntegrityError -> 500, breaking 'never silently drop an invalid event' since the caller got an error instead of a persisted rejection; (b) a corrected resubmission matched the rejected row's dedupe_key and was treated as an EDIT of a row still flagged is_valid=false, running the pipeline against it and never producing a clean accepted event. Fix: migration 0011 replaces the constraint with a partial unique index WHERE is_valid = true AND dedupe_key IS NOT NULL, and find_event_by_dedupe_key is scoped to is_valid = true to match. Considered and rejected: catching IntegrityError in persist_invalid_event and collapsing repeat rejections onto one row - fixes only (a), leaves (b), and desynchronizes the events_rejected vs event_rejected pair (one row, N receipts). The migration looks the auto-generated constraint name up from pg_constraint rather than hardcoding events_dedupe_key_key; downgrade() NULLs duplicate dedupe_keys (keeping the oldest valid row) before restoring the global constraint so no audit row is deleted. D5 routes.escalated was never evaluated - three docstrings described it as computed-on-read but nothing computed it, escalated was absent from the /leads list payload, and FR-9's escalated action type was missing from VALID_ACTION_TYPES so the transition could not have been receipted. Fix: new app/services/escalation.py with a pure is_sla_breached (strict <, so exactly on the deadline is not yet breached, matching the >=-at-threshold convention in resolve.should_auto_link and score._decide; naive timestamps coerced to UTC rather than raising) and evaluate_escalation performing a monotonic false->true transition, writing the escalated receipt once, not committing (caller owns the transaction). On-read detection rather than a scheduler is the PRD's own recommendation (section 12 open item, line 421) - no new dependency. D6 manual_review_queue.resolved_at left NULL on resolution; fixed in the same resolve_review rewrite, both branches now commit exactly once. D7 (found while fixing) events_edited reconciliation manufactured variance: events.is_edit is a sticky boolean so the entity side counts 'ever edited' while the receipt side counted raw event_edited receipts - any twice-edited event reported variance 1 and failed the FR-10 / success-criterion-2 gate. Fixed with COUNT(DISTINCT receipts.event_id) on that pair only; all 8 pairs audited, it is the only one affected. API gaps closed: GET /api/v1/dead-letter (new app/routers/dead_letter.py) - the PRD Error States table promises a dead-lettered event is visible there, but Phase 8b wrote the rows and 8c added replay with nothing able to enumerate what needed replaying without direct SQL; read-only and unauthenticated (PRD lists 200 only; the bearer gate covers the mutating admin endpoints), ?resolved= filtered, oldest-first because the list doubles as a replay worklist, each entry carrying a replay_url. /dashboard/reconciliation now returns the PRD's top-level {variance, status: PASS|FAIL} alongside the FR-10 per-metric rows and accepts since/until applied to BOTH sides of every comparison - exact because Postgres evaluates now() once per transaction and an entity plus its receipt are written in one transaction, so a window cannot split a pair; overall_status and total_variance retained as aliases. Deliberately NOT added: interpreted/scored reconciliation pairs, since those receipts accumulate per re-run while the row count stays at 1 (interpretations.event_id is UNIQUE), which would break the variance-0 gate by construction. Compliance (Phase 1 / Phase 3 gates): README.md now carries the LIVE/SIMULATED/TEST/MOCKED table at the point of use - all three connectors SIMULATED (internal fixture generators, no Reddit/social/ESP API ever called), classification LIVE via OpenRouter, simulate-failure test-harness-only, test-suite LLM calls MOCKED - plus the two efficiency short-circuits that mean not every event triggers the LIVE call, and a migration note for 0011. Out of scope on purpose: /api/v1/dashboard/summary and the Jinja2 dashboard screens are Phase 9 per the implementation plan.",
       "verification": "27 new tests, each failing against the pre-fix code. tests/unit/test_escalation.py (7) pins the SLA boundary (before / exactly at / after the deadline, naive-tz coercion, None) and asserts every FR-9-named action is registered in VALID_ACTION_TYPES. tests/integration/test_phase8_audit_fixes.py (20) covers: edited payload resubmitted -> duplicate:true; payload_hash advanced with both hashes in the receipt; revert to the original re-detected as an edit; two distinct edits keep variance 0 (the D7 DISTINCT fix); create_new writes identity_created; resolved_at set and surfaced by the list endpoint; resolve -> pipeline_status=resumed with label/score/lead AND the Interpretation/Score/Lead/Route/AttributionTouch rows asserted present for the previously-parked event; merge_into -> lead_op=updated with exactly one lead for the merged identity; the same invalid payload twice -> two 200s / 2 rows / 2 event_rejected receipts; three repeat rejections at variance 0; corrected resubmission -> a new accepted event (not an edit), both rows sharing one dedupe_key, zero event_edited receipts; backdated SLA -> escalated:true, persisted on the route, exactly one escalated receipt, idempotent across 4 further reads, exposed by the list endpoint; unbreached SLA not escalated; dead-letter listing fields + replay_url, ?resolved= filtering after a replay, empty when nothing failed; reconciliation top-level variance/status + since/until. VERIFIED: python -m compileall clean across every changed module; all 11 routes confirmed registered via app.openapi()['paths'] including the new GET /api/v1/dead-letter; unit suite 45 passed (38 pre-existing + 7 new); the 20 new integration tests collect cleanly. NOT VERIFIED - the integration suite was not executed: the Docker daemon is not running in this environment and Postgres is unreachable (pg_isready -h /tmp no response; localhost:5432 'Operation not permitted'). The integration results must be run by the maintainer: docker compose run --rm --no-deps -v \"$PWD/tests:/app/tests\" -v \"$PWD/pytest.ini:/app/pytest.ini\" --entrypoint pytest app -q. Migration 0011 must also be applied to any existing database (alembic upgrade head); the test suite builds its schema from Base.metadata.create_all so it picks up the partial index from the model. STILL OUTSTANDING: the Phase 3 gate 'log actual token usage from a real test run into the README cost section - not an estimate' cannot be satisfied here (this environment's network access does not reach OpenRouter); the README states that explicitly rather than carrying an estimate dressed up as a measurement."
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0018",
+      "phase": "8-followup",
+      "phase_name": "Integrity hardening + PRD black-box edge cases + concurrent resolve fix",
+      "date": "2026-08-21",
+      "files_modified": [
+        "app/db/migrations/versions/0012_phase8_integrity_hardening.py",
+        "app/db/models.py",
+        "app/policies/identity_policy_v1.json",
+        "app/routers/events.py",
+        "app/routers/manual_review.py",
+        "app/services/resolve.py",
+        "app/services/score.py",
+        "tests/conftest.py",
+        "tests/unit/test_integrity_constraints.py",
+        "tests/unit/test_resolve_helpers.py",
+        "tests/integration/test_resolve_identity.py",
+        "tests/integration/test_act.py",
+        "tests/integration/test_manual_review_api.py",
+        "tests/integration/test_phase8_audit_fixes.py",
+        "tests/integration/test_prd_edge_cases.py",
+        "app/db/migrations/versions/0009_routes_lead_id_unique.py"
+      ],
+      "human_modified_files": [],
+      "summary": "0012 migration (primary_company, uq_identity_links_event_id, uq_manual_review_queue_event_id, uq_scores_event_id); resolve fuzzy name+company averaged, should_auto_link always false, _upsert_identity_link, _queue_review idempotent, short-circuit on existing link, atomic UPDATE WHERE pending fix for concurrent resolve race (two POST both 200 -> now 200+409); score PG ON CONFLICT upsert; conftest hard-assign ADMIN_API_KEY; 56 PRD black-box tests FR-1..11; 3 initial failures fixed: merge_into dissimilar name (now identical), 5-token unknown test (now >8 tokens), concurrent race via atomic claim.",
+      "verification": "ruff 3 F401 fixed -> clean, compileall clean, alembic empty DB -> 0012 clean, pytest 194 passed 1 skipped (138 prior + 56 PRD). Concurrent race now 200,409; previously 200,200 minted two identities."
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0019",
+      "phase": "9",
+      "phase_name": "Dashboard (Evaluator Tooling, PRD \u00a78)",
+      "date": "2026-08-21",
+      "files_modified": [
+        "app/services/summarize.py",
+        "app/routers/dashboard.py",
+        "app/routers/pages.py",
+        "app/main.py",
+        "app/templates/base.html",
+        "app/templates/dashboard_summary.html",
+        "app/templates/leads_list.html",
+        "app/templates/lead_detail.html",
+        "app/templates/manual_review.html",
+        "app/templates/dead_letter.html",
+        "app/static/style.css",
+        "tests/integration/test_dashboard_pages.py"
+      ],
+      "human_modified_files": [],
+      "summary": "Summarize service (fresh SQL by since/until) + GET /api/v1/dashboard/summary JSON; pages router (Path-resolved templates) GET / ->302 /dashboard, GET /dashboard live reconciliation badge, GET /dashboard/leads + /{id}, GET /dashboard/manual-review with Forms POST to /dashboard/manual-review/{id}/resolve (atomic resolve + run_downstream ->303), GET /dashboard/dead-letter; base.html semantic <table><nav> with SIMULATED/LIVE + Eval ID; 12 tests for JSON keys, HTML <table>/<nav>/badge, counts, redirect, leads filter/detail 404, manual-review queue+form, dead-letter + replay_url + resolved filter, static CSS.",
+      "verification": "ruff clean, compileall clean, pytest 206 passed 1 skipped (194+12), HTML contains <table and PASS/FAIL badge live from reconciliation, not hardcoded."
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0020",
+      "phase": "10",
+      "phase_name": "Full Integration Sweep (PRD \u00a711)",
+      "date": "2026-08-21",
+      "files_modified": [
+        "fixtures/web_form_events.json",
+        "fixtures/social_mention_events.json",
+        "fixtures/email_engagement_events.json",
+        "fixtures/generate_and_post.py",
+        "tests/integration/test_phase10_sweep.py",
+        "tests/integration/test_phase10_acceptance_coverage.py",
+        "scripts/clean_run.sh",
+        "ai-usage.json",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "summary": "Fixtures 10+8+10 events covering clear positives/negatives, ambiguous, duplicates, edits, short-text, provider-failure per evaluator pack + generate_and_post.py SIMULATED seeder; test_phase10_sweep 12 tests for 9 E2E flows (happy per source x3, duplicate concurrency 1 lead, edit vs duplicate receipts, manual-review BOTH receipts + resume, provider failure 3 retries ->202 -> visible -> replay 409, out-of-order attribution, hand-computed reconciliation variance 0, perf single 72ms<3000 summary 23ms recon 20ms HTML 32ms <1000 for 500 events, fixtures existence); test_phase10_acceptance_coverage maps 11 PRD \u00a710 rows + 5 evaluator groups all covered; clean_run.sh DROP/CREATE + time pytest 28s <300s. No feature code added except bug fix already in S0018.",
+      "verification": "pytest test_phase10_sweep 12 passed in 10.51s, full 221 passed 1 skipped in 24.70s, perf single 72.23ms<3000 summary 22.95ms recon 19.75ms HTML 32.06ms <1000, clean run 28s real 26.74 <300s PASS docker compose config OK, ruff clean, compileall clean, fixtures valid JSON, acceptance all covered."
     }
   ]
 }
