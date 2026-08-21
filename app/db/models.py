@@ -24,6 +24,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -59,7 +60,7 @@ class Event(Base):
             "uq_events_dedupe_key_valid",
             "dedupe_key",
             unique=True,
-            postgresql_where="is_valid = true AND dedupe_key IS NOT NULL",
+            postgresql_where=text("is_valid = true AND dedupe_key IS NOT NULL"),
         ),
     )
 
@@ -115,14 +116,18 @@ class Identity(Base):
     primary_email: Mapped[str | None] = mapped_column(String, nullable=True)
     primary_phone: Mapped[str | None] = mapped_column(String, nullable=True)
     display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    primary_company: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 
 class IdentityLink(Base):
-    """Associates an event to the identity it resolved to, with the match rule
-    and confidence that produced the link (FR-3)."""
+    """Associates an event to its one canonical identity (FR-3).
+
+    ``event_id`` is unique so an edit, retry, or racing manual-review action
+    cannot attach the same event to multiple identities.
+    """
 
     __tablename__ = "identity_links"
 
@@ -133,7 +138,7 @@ class IdentityLink(Base):
         UUID(as_uuid=True), ForeignKey("identities.id"), nullable=False
     )
     event_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False, unique=True
     )
     match_confidence: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False)
     match_rule: Mapped[str] = mapped_column(String, nullable=False)
@@ -152,7 +157,7 @@ class ManualReviewQueue(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     event_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False, unique=True
     )
     candidate_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True
@@ -199,9 +204,9 @@ class Score(Base):
     ``score`` is NULL when the interpretation label is ``unknown`` (policy maps it
     to null and the scorer returns ``needs_review`` with no arithmetic). ``features``
     is always present (documents the inputs even on the insufficient-data path).
-    ``event_id`` is intentionally NOT unique: an edited resubmission re-runs the
-    pipeline and upserts this row (Phase 4 upsert in score_event), so a unique
-    constraint would force needless INSERT-ON-CONFLICT plumbing.
+    ``event_id`` is unique: an edited resubmission updates this one materialized
+    score through a PostgreSQL conflict-safe upsert, so concurrent replay cannot
+    manufacture duplicate score rows.
     """
 
     __tablename__ = "scores"
@@ -210,7 +215,7 @@ class Score(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     event_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False, unique=True
     )
     identity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True

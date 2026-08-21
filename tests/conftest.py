@@ -22,7 +22,10 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or (
 )
 
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
-os.environ.setdefault("ADMIN_API_KEY", "test_admin_key")
+# The Compose service may carry a real/local admin key. Tests exercise both the
+# authorized and unauthorized branches, so pin the app imported by pytest to a
+# deterministic isolated key just as we pin its database URL above.
+os.environ["ADMIN_API_KEY"] = "test_admin_key"
 os.environ.setdefault("APP_ENV", "test")
 
 import pytest_asyncio

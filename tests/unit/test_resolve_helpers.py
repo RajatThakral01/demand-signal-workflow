@@ -1,7 +1,7 @@
 """Unit tests — identity resolution helpers and policy (FR-3).
 
-Exact-match normalization, fuzzy similarity, the threshold-boundary decision rule,
-and the identity policy's visibility (threshold + rule order not hardcoded).
+Exact-match normalization, fuzzy similarity, and the identity policy's
+manual-review guarantee (threshold + rule order not hardcoded).
 """
 
 from decimal import Decimal
@@ -27,31 +27,30 @@ def test_normalize_phone_strips_and_strips_country_code():
     assert normalize_phone(None) is None
 
 
-def test_fuzzy_similarity_identical_is_high():
-    assert fuzzy_similarity("Ada Lovelace", "Ada Lovelace") == Decimal("1.00")
+def test_fuzzy_similarity_identical_name_and_company_is_high():
+    assert fuzzy_similarity("Ada Lovelace", "Ada Lovelace", "Analytical", "Analytical") == Decimal("1.00")
 
 
 def test_fuzzy_similarity_unrelated_is_low():
     assert fuzzy_similarity("Ada Lovelace", "Bob The Builder") == Decimal("0.00")
 
 
-# --- Threshold boundary (PRD §11: test at and around the threshold) -----------
+# --- Fuzzy candidates are always human-reviewed --------------------------------
 def test_should_auto_link_boundary_below():
     assert should_auto_link(Decimal("0.849"), Decimal("0.85")) is False
 
 
 def test_should_auto_link_boundary_exactly():
-    # At the threshold -> auto-link (>= semantics), per policy.
-    assert should_auto_link(Decimal("0.85"), Decimal("0.85")) is True
+    assert should_auto_link(Decimal("0.85"), Decimal("0.85")) is False
 
 
 def test_should_auto_link_boundary_above():
-    assert should_auto_link(Decimal("0.851"), Decimal("0.85")) is True
+    assert should_auto_link(Decimal("0.851"), Decimal("0.85")) is False
 
 
 def test_should_auto_link_clearly_below_and_above():
     assert should_auto_link(Decimal("0.10"), Decimal("0.85")) is False
-    assert should_auto_link(Decimal("0.99"), Decimal("0.85")) is True
+    assert should_auto_link(Decimal("0.99"), Decimal("0.85")) is False
 
 
 # --- Policy visibility: threshold & rules live in the file, not inline ---------
@@ -66,11 +65,6 @@ def test_policy_has_visible_threshold_and_rule_order():
 
 
 def test_forced_auto_merge_below_threshold_is_rejected():
-    """The single decision point refuses a below-threshold merge.
-
-    ``should_auto_link`` is the only gate any link-creation path consults, so
-    there is no code path that can auto-merge a sub-threshold fuzzy match.
-    """
-    below = Decimal("0.84")
-    threshold = Decimal("0.85")
-    assert should_auto_link(below, threshold) is False
+    """No fuzzy confidence can substitute for an explicit reviewer decision."""
+    assert should_auto_link(Decimal("0.84"), Decimal("0.85")) is False
+    assert should_auto_link(Decimal("1.00"), Decimal("0.85")) is False

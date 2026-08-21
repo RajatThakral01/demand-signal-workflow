@@ -14,10 +14,10 @@
     },
     "fuzzy_name_company": {
       "auto_link": false,
-      "_comment": "Low confidence, manual review only, NEVER auto-merge. Applied only when no exact email/phone matched. Uses a normalized token-set Jaccard similarity on (display_name, company); if confidence >= threshold it may auto-link, otherwise it goes to manual review. The algorithm is the Python stdlib `difflib.SequenceMatcher.ratio()` over normalized token sequences (no third-party dependency; deterministic and good enough for name-with-typos matching at this scale).",
-      "algorithm": "difflib.SequenceMatcher.ratio on normalized token-sequence representation of the display name",
+      "_comment": "Low confidence, manual review only, NEVER auto-merge. Applied only when no exact email/phone matched. Name and company similarity rank a candidate for the reviewer; the score is never approval to merge. The algorithm is the Python stdlib `difflib.SequenceMatcher.ratio()` over normalized token sequences (no third-party dependency; deterministic and good enough for name-with-typos matching at this scale).",
+      "algorithm": "average of difflib.SequenceMatcher.ratio over normalized display-name and company token sequences when both companies are known; name-only is a reviewer suggestion",
       "requires": ["name", "company"],
-      "_confidence_note": "confidence == 1.0 threshold comparison: a match AT the threshold (e.g. exactly 0.85) satisfies >= and will auto-link; anything strictly below goes to manual review. Tested at and around the boundary (0.849 vs 0.85)."
+      "_confidence_note": "The 0.85 threshold ranks candidate strength for review; it does not permit a fuzzy auto-link. Every fuzzy candidate remains pending until a reviewer explicitly chooses merge_into or create_new."
     }
   },
   "normalizers": {

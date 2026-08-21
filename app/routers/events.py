@@ -137,7 +137,7 @@ async def create_event(
     if resolution["status"] == "queued_review":
         return EventIngestResponse(
             event_id=str(event.id),
-            is_edit=False,
+            is_edit=(status_flag == "edit"),
             status="manual_review",
             review_id=str(resolution["review_id"]),
         )
@@ -173,8 +173,8 @@ async def get_event(
     event = (await db.execute(stmt)).scalars().first()
     if event is None:
         raise HTTPException(status_code=404, detail={"error": "not_found"})
-    # Latest score for this event (Phase 4). event_id is not unique, so pick the
-    # most recent scoring row to reflect the latest pipeline pass.
+    # Exactly one materialized score exists per event (DB unique constraint); the
+    # ordering is retained for safe reads of databases predating migration 0012.
     score_row = (
         await db.execute(
             select(Score)

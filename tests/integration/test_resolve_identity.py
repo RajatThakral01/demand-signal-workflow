@@ -1,9 +1,9 @@
 """Integration tests — identity resolution + manual review flow (FR-3, Flow 3).
 
-Runs against a real test Postgres: email/phone auto-link, fuzzy above-threshold
-auto-link, fuzzy below-threshold → manual review (pipeline halts), the resolve
-endpoint (merge_into / create_new), and the "never force-merge below threshold"
-invariant exercised via a real resolution call.
+Runs against a real test Postgres: email/phone auto-link, fuzzy name+company
+candidate → manual review (pipeline halts), the resolve endpoint (merge_into /
+create_new), and the "never force-merge fuzzy candidates" invariant exercised via
+a real resolution call.
 """
 
 from datetime import datetime, timezone
@@ -83,19 +83,27 @@ async def test_same_email_reuses_identity(db_session):
     assert r1["identity_id"] == r2["identity_id"]
 
 
-# --- Fuzzy: above-threshold auto-links, below-threshold goes to manual review ---
-async def test_fuzzy_above_threshold_auto_links(db_session):
+# --- Fuzzy candidates always go to manual review ------------------------------
+async def test_fuzzy_high_confidence_candidate_still_goes_to_manual_review(db_session):
 
-    # Seed an existing identity, then a returning contact with an identical name
-    # fuzzy-matches at score 1.00 (>= threshold) and auto-links to it.
-    e1 = await _insert_event(db_session, uuid.uuid4(), {"name": "Ada Lovelace"})
+    # Even an identical name+company is only a review candidate: the policy's
+    # auto_link flag is false and a human must select merge_into/create_new.
+    e1 = await _insert_event(
+        db_session, uuid.uuid4(), {"name": "Ada Lovelace", "company": "Analytical Engines"}
+    )
     r1 = await resolve_svc.resolve_identity(db_session, e1)
     assert r1["status"] == "linked"
 
-    e2 = await _insert_event(db_session, uuid.uuid4(), {"name": "Ada Lovelace"})
+    e2 = await _insert_event(
+        db_session, uuid.uuid4(), {"name": "Ada Lovelace", "company": "Analytical Engines"}
+    )
     r2 = await resolve_svc.resolve_identity(db_session, e2)
-    assert r2["status"] == "linked"
-    assert r2["identity_id"] == r1["identity_id"]
+    assert r2["status"] == "queued_review"
+    assert r2["candidate_identity_id"] == r1["identity_id"]
+    links = (
+        await db_session.execute(select(IdentityLink).where(IdentityLink.event_id == e2.id))
+    ).scalars().all()
+    assert links == []
 
 
 async def test_fuzzy_below_threshold_goes_to_manual_review(db_session):
@@ -115,7 +123,7 @@ async def test_fuzzy_below_threshold_goes_to_manual_review(db_session):
             ManualReviewQueue.event_id == e2.id))
     ).scalars().first()
     assert entry.status == "pending"
-    assert "fuzzy_name_match_below_threshold" in entry.reason
+    assert "fuzzy_name_company_manual_review" in entry.reason
 
 
 # --- No identity fields parks in review ---------------------------------------
@@ -149,6 +157,17 @@ async def test_no_code_path_auto_merges_below_threshold(db_session):
         await db_session.execute(select(IdentityLink).where(IdentityLink.event_id == e2.id))
     ).scalars().all()
     assert links == []
+
+
+async def test_re_resolving_an_edited_event_keeps_one_identity_link(db_session):
+    event = await _insert_event(db_session, uuid.uuid4(), {"email": "edit@example.com"})
+    first = await resolve_svc.resolve_identity(db_session, event)
+    second = await resolve_svc.resolve_identity(db_session, event)
+    assert second["identity_id"] == first["identity_id"]
+    links = (
+        await db_session.execute(select(IdentityLink).where(IdentityLink.event_id == event.id))
+    ).scalars().all()
+    assert len(links) == 1
 
 
 # --- Manual review resolve endpoint (merge_into / create_new) -----------------

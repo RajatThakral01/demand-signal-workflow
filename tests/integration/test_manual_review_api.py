@@ -27,7 +27,7 @@ async def test_events_resolution_parks_ambiguous_in_manual_review(client):
     # No existing identity -> first event creates one (name-only fuzzy create).
     await client.post("/api/v1/events", json=_event(external_event_id="seed-1",
                                                     display_name="Ada Lovelace"))
-    # A name sharing "Ada" but otherwise different -> below threshold -> manual review.
+    # A fuzzy name candidate always goes to manual review.
     resp = await client.post("/api/v1/events", json=_event(external_event_id="seed-2",
                                                            display_name="Ada Rutherford"))
     assert resp.status_code == 200

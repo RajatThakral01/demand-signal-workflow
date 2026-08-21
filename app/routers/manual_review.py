@@ -19,7 +19,11 @@ from app.db.session import get_db_session
 from app.logging import get_logger
 from app.services.interpret import InterpretError
 from app.services.pipeline import run_downstream
-from app.services.resolve import get_pending_reviews, resolve_review
+from app.services.resolve import (
+    ReviewAlreadyResolvedError,
+    get_pending_reviews,
+    resolve_review,
+)
 
 router = APIRouter(prefix="/api/v1/manual-review", tags=["manual-review"])
 logger = get_logger(__name__)
@@ -87,6 +91,8 @@ async def resolve_manual_review(
 
     try:
         result = await resolve_review(db, review_id, body.decision, body.identity_id)
+    except ReviewAlreadyResolvedError:
+        raise HTTPException(status_code=409, detail={"error": "review_already_resolved"})
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"error": "invalid_decision", "detail": str(exc)})
     except LookupError as exc:

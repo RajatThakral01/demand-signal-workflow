@@ -554,7 +554,7 @@ async def test_reconciliation_accepts_a_time_window(client, db_session, monkeypa
     until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
 
     windowed = await client.get(
-        f"/api/v1/dashboard/reconciliation?since={since}&until={until}"
+        "/api/v1/dashboard/reconciliation", params={"since": since, "until": until}
     )
     assert windowed.status_code == 200
     body = windowed.json()
@@ -566,7 +566,9 @@ async def test_reconciliation_accepts_a_time_window(client, db_session, monkeypa
     old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     older = (datetime.now(timezone.utc) - timedelta(days=29)).isoformat()
     empty = (
-        await client.get(f"/api/v1/dashboard/reconciliation?since={old}&until={older}")
+        await client.get(
+            "/api/v1/dashboard/reconciliation", params={"since": old, "until": older}
+        )
     ).json()
     assert empty["variance"] == 0
     assert all(r["dashboard_count"] == 0 for r in empty["reconciliation"])

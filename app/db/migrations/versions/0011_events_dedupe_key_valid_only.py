@@ -41,7 +41,7 @@ database whose constraint was named differently.
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0011_events_dedupe_key_valid_only"
+revision = "0011_events_dedupe_valid"
 down_revision = "0010_dead_letter_queue"
 branch_labels = None
 depends_on = None

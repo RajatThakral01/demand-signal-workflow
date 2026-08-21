@@ -86,7 +86,7 @@ async def test_fallback_queue_on_unmatched_decision(client, db_session, monkeypa
         )
 
     monkeypatch.setattr(interpret, "_call_llm", _fake_call_llm())
-    monkeypatch.setattr("app.routers.events.score_event", _fake_score_event)
+    monkeypatch.setattr("app.services.pipeline.score_event", _fake_score_event)
 
     resp = await client.post("/api/v1/events", json=_web_form())
     assert resp.status_code == 200
