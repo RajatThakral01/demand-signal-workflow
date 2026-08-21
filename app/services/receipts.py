@@ -8,7 +8,7 @@ Valid action_type values (enforced by assertion):
   event_created, event_edited, event_rejected,
   identity_created, review_queued, review_resolved,
   interpreted, scored,
-  lead_created, lead_updated, routed,
+  lead_created, lead_updated, routed, route_updated,
   attributed_created, attributed_updated,
   dead_lettered   (Phase 8 — not wired yet)
 """
@@ -28,7 +28,7 @@ VALID_ACTION_TYPES = frozenset({
     "event_created", "event_edited", "event_rejected",
     "identity_created", "review_queued", "review_resolved",
     "interpreted", "scored",
-    "lead_created", "lead_updated", "routed",
+    "lead_created", "lead_updated", "routed", "route_updated",
     "attributed_created", "attributed_updated",
     "dead_lettered",
 })

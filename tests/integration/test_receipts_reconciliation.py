@@ -157,3 +157,39 @@ async def test_edit_event_writes_event_edited_receipt(client, db_session, monkey
 
     assert (await _count_receipts(db_session, "event_created")) == 1
     assert (await _count_receipts(db_session, "event_edited")) == 1
+
+
+async def test_create_then_edit_keeps_reconciliation_variance_zero(client, db_session, monkeypatch):
+    """Regression test for the events_created reconciliation mismatch defect.
+
+    A previously-created valid event that is later edited flips is_edit=True. The
+    OLD events_created dashboard query filtered on is_edit=False, so the row dropped
+    out of the created count (0) while the immutable event_created receipt stayed at
+    1 -> variance 1, mismatch. The fix counts events_created by is_valid only.
+    """
+    monkeypatch.setattr(interpret, "_call_llm", _fake_call_llm())
+
+    # Create one valid event, then confirm reconciliation is clean.
+    original = _web_form(external_event_id="regress-create-edit")
+    r1 = await client.post("/api/v1/events", json=original)
+    assert r1.status_code == 200
+
+    body1 = (await client.get("/api/v1/dashboard/reconciliation")).json()
+    assert body1["overall_status"] == "ok", body1
+    assert body1["total_variance"] == 0, body1
+    ev1 = [e for e in body1["reconciliation"] if e["entity"] == "events_created"][0]
+    assert ev1["variance"] == 0, ev1
+
+    # Edit the SAME event (same external_event_id, different message).
+    edited = dict(original)
+    edited["message"] = "Completely different message to trigger edit detection now"
+    r2 = await client.post("/api/v1/events", json=edited)
+    assert r2.status_code == 200 and r2.json()["is_edit"] is True
+
+    body2 = (await client.get("/api/v1/dashboard/reconciliation")).json()
+    assert body2["overall_status"] == "ok", body2
+    assert body2["total_variance"] == 0, body2
+    ev_created = [e for e in body2["reconciliation"] if e["entity"] == "events_created"][0]
+    ev_edited = [e for e in body2["reconciliation"] if e["entity"] == "events_edited"][0]
+    assert ev_created["variance"] == 0, ev_created
+    assert ev_edited["variance"] == 0, ev_edited

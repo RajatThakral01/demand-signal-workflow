@@ -22,6 +22,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -238,9 +239,17 @@ class Route(Base):
     """Routing decision for a lead (FR-7). Every route records rule_matched —
     including fallback routes — so no route is ever untraceable. escalated is
     computed-on-read for v1 (sla_deadline < now()); no scheduler is added.
+
+    lead_id is UNIQUE: one route per lead. `route_lead()` upserts by lead_id, and
+    the DB constraint is the idempotency anchor that prevents a second route row
+    from FR-2's edited-resubmission path.
     """
 
     __tablename__ = "routes"
+
+    __table_args__ = (
+        UniqueConstraint("lead_id", name="uq_routes_lead_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     lead_id: Mapped[uuid.UUID] = mapped_column(

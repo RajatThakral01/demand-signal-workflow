@@ -35,7 +35,7 @@ async def reconciliation(
         "events_created": (
             await db.execute(
                 select(func.count()).select_from(Event).where(
-                    Event.is_valid.is_(True), Event.is_edit.is_(False)
+                    Event.is_valid.is_(True)
                 )
             )
         ).scalar_one(),

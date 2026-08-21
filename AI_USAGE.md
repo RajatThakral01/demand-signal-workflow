@@ -454,3 +454,113 @@ this file is `ai-usage.json`.
   decision=hot, reason, action=routed, result=ok, error=null, timing_ms.
 
 ---
+
+### Session: Phase 8 pre-work — routing idempotency defect fix
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0013`
+- **Date:** 2026-08-20
+- **Classification:** This is a DEFECT found and fixed — NOT routine Phase 8 scope.
+  It was logged separately so it is not silently folded into Phase 8's feature list.
+- **What the bug was:** `routes.lead_id` had no UNIQUE constraint (only a plain
+  non-unique `ix_routes_lead_id` index). `route_lead()` unconditionally inserted a
+  new `Route` row on every `act()` call, and `act()` called `route_lead()` even when
+  `create_or_update_lead` returned `lead_op="updated"`. Consequently any second
+  `act()` for the same lead — reachable today via FR-2's edited-resubmission path
+  (edit re-runs interpret→score→act) — created a SECOND `routes` row for the same
+  `lead_id`. Reachable since Phase 6.
+- **How it was found:** diagnostic review (manual inspection of the `routes` table
+  shape and `route_lead()`), NOT caught by the original test suite — no existing
+  test asserted a `routes` row count anywhere.
+- **The fix:**
+  - Alembic `0009_routes_lead_id_unique` (down_revision `0008_receipts`): adds a
+    UNIQUE constraint `uq_routes_lead_id` on `routes.lead_id`, REPLACING the
+    redundant non-unique `ix_routes_lead_id` (a UNIQUE constraint auto-creates its
+    own index, so keeping the plain index would be redundant). The migration also
+    deduplicates legacy duplicate rows (keeps latest per lead_id) so the constraint
+    can apply to existing deployments.
+  - `Route.__table_args__` in `app/db/models.py` now declares the matching
+    `uq_routes_lead_id` UNIQUE constraint.
+  - `route_lead()` in `app/services/act.py` is now an upsert: if a route exists for
+    `lead.id`, it UPDATES `queue`/`rule_matched`/`sla_deadline` (recomputed from the
+    current decision/label — a re-route may change the queue) instead of inserting;
+    else it inserts, with the same IntegrityError-on-race handling used elsewhere.
+- **Correction (documented per the "correction-of-a-correction" instruction):**
+  The FIRST attempt at the receipt logic made `act()` write a `routed` receipt ONLY
+  when a route row is created (`lead_op="created"`) and write NOTHING when
+  `route_lead()` updated an existing route — done specifically to make the
+  reconciliation test pass. That violated FR-9 ("nothing mutates state without a
+  receipt") and the Appendix's "do not skip writing a receipts row for any mutating
+  action" instruction: a route update (queue/rule_matched/sla_deadline changing on a
+  re-route) is a mutating action that produced zero evidence of itself.
+  A diagnostic confirmed the reconciliation allowlist in
+  `app/routers/dashboard.py` (`receipt_pairs` with exactly 7 pairs, incl.
+  `"routes": ("route", "routed")`) counts ONLY those listed action_types and is
+  therefore invisible to any unlisted type (lead_updated, attributed_updated, or a
+  new route_updated) by construction.
+  The CORRECTED final state: added `route_updated` to `VALID_ACTION_TYPES` in
+  `app/services/receipts.py`; `route_lead()` now returns `(route, "created"|"updated")`
+  (tuple return mirroring `create_or_update_lead` — chosen for consistency with the
+  existing codebase and updated at the one direct call site in the concurrency test);
+  `act()` writes `action_type="routed"` on creation and `action_type="route_updated"`
+  on an in-place update. NO change to `dashboard.py` was needed — the allowlist
+  ignores `route_updated` exactly as it ignores `lead_updated`/`attributed_updated`.
+- **New test coverage:**
+  - `test_edited_resubmission_updates_route_in_place`: POST + edit resubmission
+    (changed message → different decision) asserts exactly ONE route row for the
+    lead, its queue/rule_matched reflect the NEW decision, and the FR-9 receipts:
+    exactly one `routed` receipt (original creation) plus exactly one `route_updated`
+    receipt (the edit re-route), with NO second `routed` receipt for the update call.
+  - `test_concurrent_route_lead_creates_one_route`: two near-simultaneous
+    `route_lead()` calls via `asyncio.gather` on separate sessions assert exactly
+    ONE route row — proving the DB constraint, not app logic, is the guard.
+- **Verification:** full suite **91 passed, 1 skipped** locally and in-container
+  (89 baseline + 2 new). `0009` applied cleanly to a fresh DB (`\d routes` shows
+  `uq_routes_lead_id` UNIQUE CONSTRAINT, no `ix_routes_lead_id`).
+  `test_reconciliation_variance_zero_on_full_seeded_run` still passes with variance 0
+  (routes pair: dashboard_count=1, receipt_count=1, variance=0) — proving that
+  adding `route_updated` does not break reconciliation, per the diagnostic. Live
+  Docker: edit resubmission changed decision hot→warm (queue sales_urgent→
+  sales_default, rule hot_any→warm_any) with route count staying exactly 1.
+
+---
+
+### Session: Phase 8 pre-work — events_created reconciliation mismatch defect fix
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0014`
+- **Date:** 2026-08-20
+- **Classification:** This is a SEPARATE DEFECT from S0013 (the routes fix), with a
+  distinct root cause. Both were found during the same diagnostic session, before
+  any Phase 8 feature work, and are logged as their own entries — not folded
+  together.
+- **What the bug was:** `app/routers/dashboard.py`'s `events_created` dashboard
+  count filtered on `Event.is_valid.is_(True), Event.is_edit.is_(False)`, treating
+  "created" and "edited" as mutually exclusive states of the same row. They are
+  not: every valid event was created (a permanent fact, matching the immutable
+  `event_created` receipt written exactly once) and some were later ALSO edited
+  (an independent fact, matching `event_edited` receipts). When an FR-2 edit flips
+  a row's `is_edit` to True, that row dropped out of the `events_created` count
+  even though it was — and remains — a created event, producing a nonzero variance
+  (`events_created: dashboard_count=0, receipt_count=1`) whenever a previously
+  created valid event is later edited. Reachable via the ordinary FR-2 edit path.
+- **How it was found:** diagnostic review while investigating the S0013 routes fix.
+  It was NOT caught by the original test suite because no existing test combined
+  create + edit + reconciliation together (the reconciliation test used distinct
+  created events and never edited one; the edit-receipt tests never called the
+  reconciliation endpoint).
+- **The fix:** changed the `events_created` dashboard query to filter ONLY on
+  `Event.is_valid.is_(True)`, removing the `Event.is_edit.is_(False)` condition.
+  The `events_edited` query (is_edit=True) was left unchanged — it is already
+  correct because `is_edit` is monotonic (never reverts once set) and stays
+  consistent with the `event_edited` receipt count. `events_created` and
+  `events_edited` are now intentionally OVERLAPPING (not a partition) — they answer
+  different questions ("was this ever created" vs "was this ever also edited"),
+  which is the correct model and not a double-count bug.
+- **New regression test:** `test_create_then_edit_keeps_reconciliation_variance_zero`
+  — POST a valid event, assert reconciliation is clean (overall_status="ok",
+  total_variance=0, events_created variance=0); then POST an edit for that same
+  event, assert reconciliation is STILL "ok" with total_variance=0 and both
+  events_created and events_edited individually at variance=0. Verified it fails
+  against the pre-fix query (overall_status "mismatch", events_created variance 1)
+  and passes with the fix.
+- **Verification:** reconciliation file **6 passed**; full suite **92 passed,
+  1 skipped** (91 prior + 1 new regression test).
+
+---

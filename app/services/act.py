@@ -103,13 +103,46 @@ async def create_or_update_lead(
     return lead, "created"
 
 
-async def route_lead(db: AsyncSession, lead: Lead, decision: str, label: str) -> Route:
-    """Compute and persist a routing decision for a lead (no commit)."""
+async def route_lead(db: AsyncSession, lead: Lead, decision: str, label: str) -> tuple[Route, str]:
+    """Compute and persist a routing decision for a lead (upsert by lead_id).
+
+    Returns ``(route, "created" | "updated")``. One route row per lead (lead_id
+    UNIQUE). If a route already exists for ``lead.id`` (e.g. an edited resubmission
+    re-running interpret→score→act), it is UPDATED in place with the freshly computed
+    queue/rule_matched/sla_deadline — the routing rules may yield a different queue
+    if the score/decision changed. If none exists, a new route is inserted. assigned_at
+    is preserved on update. Does NOT commit — the caller owns the transaction.
+    """
     start = time.monotonic()
     rules = _load_routing_rules()
     queue, rule_matched, sla_hours = apply_routing_rule(decision, label, rules)
     now = datetime.now(timezone.utc)
     sla_deadline = now + timedelta(hours=sla_hours)
+
+    existing = (
+        await db.execute(select(Route).where(Route.lead_id == lead.id))
+    ).scalars().first()
+    if existing is not None:
+        # Edit re-run / re-route: update the existing row in place.
+        existing.queue = queue
+        existing.rule_matched = rule_matched
+        existing.sla_deadline = sla_deadline
+        logger.info(
+            "lead_routed",
+            input_id=str(lead.id),
+            decision=decision,
+            reason=f"re-routed to queue={queue} via rule={rule_matched} (sla {sla_hours}h)",
+            action="route_updated",
+            result="ok",
+            error=None,
+            timing_ms=round((time.monotonic() - start) * 1000, 2),
+            lead_id=str(lead.id),
+            queue=queue,
+            rule_matched=rule_matched,
+            sla_deadline=sla_deadline.isoformat(),
+        )
+        return existing, "updated"
+
     route = Route(
         lead_id=lead.id,
         queue=queue,
@@ -118,6 +151,35 @@ async def route_lead(db: AsyncSession, lead: Lead, decision: str, label: str) ->
         sla_deadline=sla_deadline,
     )
     db.add(route)
+    try:
+        await db.flush()  # populate route.id; may raise if we lost a race
+    except IntegrityError:
+        # Lost a concurrent insert race — the DB UNIQUE constraint won.
+        await db.rollback()  # discards the tentative row; re-read the winner
+        route = (
+            await db.execute(select(Route).where(Route.lead_id == lead.id))
+        ).scalars().first()
+        if route is None:
+            raise  # unexpected — re-raise
+        route.queue = queue
+        route.rule_matched = rule_matched
+        route.sla_deadline = sla_deadline
+        logger.info(
+            "lead_routed",
+            input_id=str(lead.id),
+            decision=decision,
+            reason=f"re-routed to queue={queue} via rule={rule_matched} (sla {sla_hours}h)",
+            action="route_updated",
+            result="ok",
+            error=None,
+            timing_ms=round((time.monotonic() - start) * 1000, 2),
+            lead_id=str(lead.id),
+            queue=queue,
+            rule_matched=rule_matched,
+            sla_deadline=sla_deadline.isoformat(),
+        )
+        return route, "updated"
+
     logger.info(
         "lead_routed",
         input_id=str(lead.id),
@@ -132,7 +194,7 @@ async def route_lead(db: AsyncSession, lead: Lead, decision: str, label: str) ->
         rule_matched=rule_matched,
         sla_deadline=sla_deadline.isoformat(),
     )
-    return route
+    return route, "created"
 
 
 async def act(
@@ -150,7 +212,7 @@ async def act(
         if score_row and score_row.features
         else "unknown"
     )
-    route = await route_lead(db, lead, decision, label)
+    route, route_op = await route_lead(db, lead, decision, label)
     lead.status = "routed"
     # Flow: attribution (FR-8). Slots into the same transaction as lead+route.
     touch = await upsert_attribution(db, event, identity_id)
@@ -165,10 +227,15 @@ async def act(
         event_id=event.id, identity_id=identity_id,
         metadata={"lead_op": lead_op, "decision": decision})
 
-    # Route receipt
+    # Route receipt — FR-9 ("nothing mutates state without a receipt"): a newly
+    # created route writes "routed"; a route updated in place (re-route via an edit)
+    # writes "route_updated". The reconciliation allowlist only counts action_type
+    # "routed", so "route_updated" is invisible to it by construction (same as
+    # lead_updated/attributed_updated).
+    route_action = "routed" if route_op == "created" else "route_updated"
     await write_receipt(
         db,
-        action_type="routed",
+        action_type=route_action,
         entity_id=route.id, entity_type="route",
         event_id=event.id, identity_id=identity_id,
         metadata={"queue": route.queue, "rule_matched": route.rule_matched,
