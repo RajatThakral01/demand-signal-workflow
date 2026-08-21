@@ -16,6 +16,7 @@ from app.routers.events import router as events_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.leads import router as leads_router
 from app.routers.manual_review import router as manual_review_router
+from app.routers.admin import router as admin_router
 
 configure_logging(settings.log_level)
 logger = get_logger(__name__)
@@ -50,6 +51,7 @@ app.include_router(events_router)
 app.include_router(leads_router)
 app.include_router(manual_review_router)
 app.include_router(dashboard_router)
+app.include_router(admin_router)
 
 
 @app.get("/health", summary="Liveness + DB connectivity probe")

@@ -10,7 +10,7 @@ Valid action_type values (enforced by assertion):
   interpreted, scored,
   lead_created, lead_updated, routed, route_updated,
   attributed_created, attributed_updated,
-  dead_lettered   (Phase 8 — not wired yet)
+  dead_lettered, dead_letter_resolved   (Phase 8c — replay resolution)
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ VALID_ACTION_TYPES = frozenset({
     "interpreted", "scored",
     "lead_created", "lead_updated", "routed", "route_updated",
     "attributed_created", "attributed_updated",
-    "dead_lettered",
+    "dead_lettered", "dead_letter_resolved",
 })
 
 

@@ -20,7 +20,7 @@
       "prompts_or_hashes": [
         "phase 0 scaffolding prompt: folder structure, docker-compose, Dockerfile, alembic, requirements, .env.example, config, logging, health, gitignore, AI disclosure"
       ],
-"notes": [
+      "notes": [
         "Phase 0 post-review fixups (Rajat review): (1) removed hardcoded ADMIN_API_KEY default from docker-compose.yml and made app/config.py require it (fail-fast) - verified settings raises ValidationError when unset and /health still 200 when set via .env; (2) added 'notes' field top-level and per-session to ai-usage.json; (3) moved PRD + Implementation Plan into docs/ via git mv; README already referenced docs/"
       ],
       "skills_tools": [],
@@ -345,6 +345,73 @@
       ],
       "human_modified_files": [],
       "verification": "7 new tests pass (5 reconciliation + 2 logging compliance; test_reconciliation_variance_zero_on_full_seeded_run is hard pass/fail: overall_status=ok total_variance=0 every entry variance=0); full suite 89 passed, 1 skipped locally and in-container (target 89+1; 82 prior + 7 new - prompt's 91 assumed 7a tests). Migration 0008 applied; \\d receipts shows ix_receipts_action_type + ix_receipts_event_id. Reconciliation on seeded run: ok / variance 0 / 7 pairs. PII redaction verified: raw email absent, sha256:... form present. Sample 7-field log (routed): input_id/decision=hot/reason/action=routed/result=ok/error=null/timing_ms. Placeholder: dead_lettered in VALID_ACTION_TYPES not wired (Phase 8); escalated computed-on-read. No new real API cost."
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0013",
+      "phase": "8",
+      "phase_name": "Phase 8 pre-work - routing idempotency defect fix",
+      "date": "2026-08-20",
+      "files_modified": [
+        "app/db/migrations/versions/0009_routes_lead_id_unique.py",
+        "app/db/models.py",
+        "app/services/act.py",
+        "app/services/receipts.py",
+        "tests/integration/test_act.py",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "summary": "DEFECT found and fixed, logged separately (not folded into Phase 8 feature list). Bug: routes.lead_id had no UNIQUE constraint (only plain non-unique ix_routes_lead_id); route_lead() inserted a new Route on every act() call, and act() called it even when create_or_update_lead returned lead_op=\"updated\", so a second act() for the same lead (reachable via FR-2 edited-resubmission path) created a SECOND routes row; reachable since Phase 6; found by diagnostic review, not the test suite. Fix: Alembic 0009_routes_lead_id_unique adds UNIQUE constraint uq_routes_lead_id on routes.lead_id replacing the redundant non-unique index and dedupes legacy duplicates; Route.__table_args__ updated; route_lead() is now an upsert (update queue/rule_matched/sla_deadline on re-route, else insert). Correction per \"correction-of-a-correction\": route_lead() returns (route, \"created\"|\"updated\") tuple and act() writes routed on create and route_updated on an in-place update (added route_updated to VALID_ACTION_TYPES); no dashboard.py change needed since the allowlist ignores unlisted action_types.",
+      "verification": "New tests: test_edited_resubmission_updates_route_in_place (exactly ONE route row, queue/rule reflect new decision, one routed + one route_updated receipt, no second routed for update); test_concurrent_route_lead_creates_one_route (asyncio.gather, exactly ONE route row - DB constraint is the guard). Full suite 91 passed, 1 skipped locally and in-container (89 baseline + 2 new). 0009 applied cleanly; \\d routes shows uq_routes_lead_id (no ix_routes_lead_id). Reconciliation still variance 0. Live Docker: edit resubmission changed hot->warm (sales_urgent->sales_default, hot_any->warm_any) with route count staying exactly 1."
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0014",
+      "phase": "8",
+      "phase_name": "Phase 8 pre-work - events_created reconciliation mismatch defect fix",
+      "date": "2026-08-20",
+      "files_modified": [
+        "app/routers/dashboard.py",
+        "tests/integration/test_receipts_reconciliation.py",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "summary": "SEPARATE DEFECT from S0013 (routes fix) with a distinct root cause, found during the same diagnostic session; logged as its own entry. Bug: the events_created dashboard count filtered on Event.is_valid.is_(True), Event.is_edit.is_(False), treating created/edited as mutually exclusive; but every valid event was created AND some were later ALSO edited (both immutable facts matching event_created / event_edited receipts). When an FR-2 edit flips is_edit to True the row dropped out of events_created, producing nonzero variance (events_created: dashboard_count=0, receipt_count=1). Not caught by the original suite: no test combined create + edit + reconciliation. Fix: events_created query now filters ONLY on is_valid.is_(True); events_edited unchanged (is_edit monotonic). events_created and events_edited are now intentionally OVERLAPPING (not a partition) - correct model, not a double-count bug.",
+      "verification": "New regression test test_create_then_edit_keeps_reconciliation_variance_zero: POST valid event -> reconciliation ok/0; then edit same event -> STILL ok/0 with both events_created and events_edited at 0. Verified fails against pre-fix query (overall_status mismatch, events_created variance 1) and passes with fix. Reconciliation file 6 passed; full suite 92 passed, 1 skipped (91 prior + 1 new)."
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0015",
+      "phase": "8b",
+      "phase_name": "Phase 8b - Retry/Backoff + Dead-Letter for the Interpret Stage (FR-11)",
+      "date": "2026-08-20",
+      "files_modified": [
+        "app/db/models.py",
+        "app/db/migrations/versions/0010_dead_letter_queue.py",
+        "app/services/interpret.py",
+        "app/routers/events.py",
+        "app/schemas/responses.py",
+        "app/routers/dashboard.py",
+        "app/services/receipts.py",
+        "tests/integration/test_dead_letter.py",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "summary": "DeadLetterQueue model (table dead_letter_queue: id PK, event_id FK, stage, error, retry_count, resolved default false, created_at); Alembic 0010_dead_letter_queue (down_revision 0009). interpret.py: on retry exhaustion (bounded by _is_retryable) the event is dead-lettered - a dead_letter_queue row (stage=\"interpret\", sanitized/truncated error <=500 chars, retry_count=actual attempts) plus a dead_lettered receipt in a SINGLE commit (FR-9 atomicity), replacing the previous interpreted/status=error receipt. Per-attempt backoffs logged via structlog, not receipted. Retry config env-configurable: retry_max_attempts (default 3) and retry_base_delay_ms (default 500) from RETRY_MAX_ATTEMPTS/RETRY_BASE_DELAY_MS. events.py + schemas/responses.py: exhaustion returns status=\"dead_letter\", stage=\"interpret\"; pipeline halts (confirmed short-circuit already prevented score/act). dashboard.py: added dead_letter_queue reconciliation pair (dead_letter_queue <-> dead_lettered). Finding: \"error\" is never used as an action_type anywhere (only as a status); retiring error-as-action_type was a no-op; exhaustion receipt uses action_type=\"dead_lettered\", status=\"error\". Decision: dead_letter_queue IS a reconciliation pair (row vs dead_lettered receipt, written atomically 1:1) added deliberately and disclosed.",
+      "verification": "New tests tests/integration/test_dead_letter.py: (1) exhaustion test mocking openai.APITimeoutError with retry_max_attempts=3 asserts EXACTLY 3 attempts, one DLQ row (stage=interpret, retry_count=3, resolved=false), one dead_lettered receipt, NO interpreted/status=error receipt, no fabricated unknown interpretation, no score/lead/route rows (pipeline halted); API status=\"dead_letter\", stage=\"interpret\". (2) retry-budget test retry_max_attempts=1 -> exactly 1 attempt, retry_count=1. Dead-letter tests 2 passed; reconciliation file 6 passed (new pair variance 0); full suite 94 passed, 1 skipped locally and in-container. Addendum (PRD-conformance fix caught in review): dead-letter POST /events now returns 202 (was 200) per PRD §4 Error States, via injected Response setting status_code=202 on the dead-letter branch only; test_exhaustion_dead_letters_event_and_halts_pipeline updated to assert 202; full suite still 94 passed, 1 skipped locally and in-container."
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0016",
+      "phase": "8c",
+      "phase_name": "Phase 8c - Admin Replay + Simulate-Failure (FR-11, FR-12)",
+      "date": "2026-08-21",
+      "files_modified": [
+        "app/routers/admin.py",
+        "app/main.py",
+        "app/services/receipts.py",
+        "tests/integration/test_admin.py",
+        "AI_USAGE.md"
+      ],
+      "human_modified_files": [],
+      "summary": "app/routers/admin.py (new; mounted in main.py after external routers, matching no-prefix-at-mount convention since each router bakes its own prefix). POST /api/v1/admin/replay/{event_id}: bearer-token gated, re-runs existing pipeline (classify_event -> score_event -> act) by REUSING the service functions; on success marks DLQ row resolved=true, writes a dead_letter_resolved receipt (entity_type=\"dead_letter\"), returns 200 {status: replayed, event_id, lead_id}. POST /api/v1/admin/simulate-failure: body {stage, event_id}; for stage=\"interpret\" writes a DLQ row + dead_lettered receipt and returns 200 {status: dead_lettered} (test-harness without a real provider call); rejects non-interpret stages with 400 invalid_stage. receipts.py: dead_letter_resolved added to VALID_ACTION_TYPES. Design decisions: auth dependency created fresh (no reusable bearer-auth dep existed) via HTTPBearer(auto_error=False) comparing credentials != settings.admin_api_key -> 401 {\"error\": \"unauthorized\"}; 409 not-dead-lettered rather than a silent 200 (also when resolved=true from a prior replay); defensive >1-identity-link check -> 409 ambiguous_identity (replay does NOT re-run resolve_identity; reads the single link; IdentityLink has no unique constraint on event_id); dead_letter_resolved receipt rationale (reconciliation only pairs DLQ row-count vs dead_lettered so resolution mutation itself must be receipted per FR-9); failed replay -> NEW DLQ row (not retry_count increment) reusing existing exhaustion path, surfaced as 503 replay_failed.",
+      "verification": "tests/integration/test_admin.py - 13 tests: 401 both endpoints (missing + wrong token); replay happy path (exactly one dead_letter_resolved receipt); simulate-failure happy path (DLQ resolved=false); 404 replay unknown event; 409 not-dead-lettered; 409 re-replay after resolution; 400 invalid_stage; 404 simulate-failure. Critical idempotency test (test_replay_partial_success_is_idempotent) asserts AFTER replay exactly ONE row each for interpretations/scores/leads/routes/identity_links and DLQ resolved=True; literal printed counts: BEFORE dead-letter interpretations=1 scores=1 leads=1 routes=1 dlq=0 identity_links=1; AFTER dead-letter (pre-replay) dlq=1; AFTER replay interpretations=1 scores=1 leads=1 routes=1 dlq=1 identity_links=1; dlq resolved=True stage=interpret retry_count=3 - proves the Phase 8a routes-idempotency fix holds under replay. Forced-failure test (test_replay_redeadletters_when_provider_still_down): dead-letter via simulate-failure then force provider to keep throwing -> 503 replay_failed and a SECOND DLQ row + second dead_lettered receipt (both resolved=false). Admin tests 13 passed locally; full suite 107 passed, 1 skipped locally and in-container (94 prior + 13 new). docker compose build app + up -d succeeded before in-container run."
     }
   ]
 }

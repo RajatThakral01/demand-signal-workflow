@@ -624,4 +624,74 @@ this file is `ai-usage.json`.
   untouched. `test_exhaustion_dead_letters_event_and_halts_pipeline` updated to
   assert 202. Full suite still **94 passed, 1 skipped** locally and in-container.
 
+---### Session: Phase 8c — Admin Replay + Simulate-Failure (FR-11, FR-12)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0016`
+- **Date:** 2026-08-21
+- **Provider / model:** OpenRouter, `deepseek/deepseek-v4-flash` (no new real API
+  call this phase — replay happy paths are tested with a mocked classifier; the
+  forced-failure path uses a mocked `openai.APITimeoutError`).
+- **What was generated:**
+  - `app/routers/admin.py` (new — no admin router existed before; mounted in
+    `app/main.py` after the external routers, matching the existing no-prefix-at-
+    mount convention since each router bakes its own prefix).
+    - `POST /api/v1/admin/replay/{event_id}` — bearer-token gated, re-runs the
+      existing pipeline (`classify_event → score_event → act`) by REUSING the
+      service functions (no inline reimplementation). On success marks the DLQ row
+      `resolved=true`, writes a `dead_letter_resolved` receipt (entity_type=
+      "dead_letter"), returns `200 {status: replayed, event_id, lead_id}`.
+    - `POST /api/v1/admin/simulate-failure` — body `{stage, event_id}`; for
+      `stage="interpret"` writes a DLQ row + `dead_lettered` receipt and returns
+      `200 {status: dead_lettered}` (used by tests to force a dead-lettered event).
+      Rejects non-interpret stages with `400 invalid_stage`.
+  - `app/services/receipts.py`: `dead_letter_resolved` added to
+    `VALID_ACTION_TYPES`.
+- **Design decisions (all surfaced for review):**
+  - **Auth dependency created fresh** — no reusable bearer-auth dependency existed,
+    so `require_admin` was built in `admin.py` using `HTTPBearer(auto_error=False)`,
+    comparing `credentials.credentials != settings.admin_api_key` → `401
+    {"error": "unauthorized"}`. `ADMIN_API_KEY` defaults to `test` (not a real
+    secret in this dev evaluation).
+  - **409 for not-dead-lettered, not a silent 200** — per the replay contract, a
+    replay of an event with no unresolved DLQ row (or no DLQ row at all; also when
+    `resolved=true` from a prior successful replay) returns `409
+    not_dead_lettered`. This makes re-replay explicit rather than silently
+    re-running work.
+  - **Defensive >1-identity-link check** — replayed events are already resolved
+    (resolution runs before interpret, so a dead-lettered event normally has exactly
+    one `IdentityLink`). Replay does NOT re-run `resolve_identity`; it reads the
+    single link and errors `409 ambiguous_identity` if `len(links) != 1` (defensive
+    only — `IdentityLink` has no unique constraint on event_id, confirmed in
+    `app/db/models.py` and migration 0002).
+  - **`dead_letter_resolved` receipt rationale** — reconciliation only pairs DLQ
+    row-count vs `dead_lettered` receipts, so flipping `resolved=true` alone would
+    not break that pair; but FR-9 ("nothing mutates state without a receipt")
+    requires the resolution mutation itself be receipted. Added deliberately.
+  - **Failed replay → NEW DLQ row (not retry_count increment)** — when the replay's
+    `classify_event` exhausts retries, the existing exhaustion path (Phase 8b)
+    writes a NEW `dead_letter_queue` row + `dead_lettered` receipt, surfaced as
+    `503 replay_failed`. This reuses existing code (driest option) and treats each
+    attempt as a distinct dead-letter record rather than mutating the original row.
+- **Test coverage:** `tests/integration/test_admin.py` — 13 tests: 401 both
+  endpoints (missing + wrong token), replay happy path (verifies exactly one
+  `dead_letter_resolved` receipt), simulate-failure happy path (DLQ resolved=false),
+  404 replay unknown event, 409 not-dead-lettered, 409 re-replay after resolution,
+  400 invalid_stage, 404 simulate-failure, and the two critical tests below.
+- **Critical idempotency test** (`test_replay_partial_success_is_idempotent`):
+  the event is dead-lettered then replayed; asserts AFTER replay exactly ONE row
+  each for interpretations/scores/leads/routes/identity_links (no double-writes
+  from re-running the pipeline) and the DLQ row `resolved=True`. Literal printed
+  counts: `BEFORE dead-letter: interpretations=1 scores=1 leads=1 routes=1 dlq=0
+  identity_links=1`; `AFTER dead-letter (pre-replay): ... dlq=1`;
+  `AFTER replay: interpretations=1 scores=1 leads=1 routes=1 dlq=1 identity_links=1`;
+  `dlq resolved=True stage=interpret retry_count=3`. This is the proof that the
+  Phase 8a routes-idempotency fix holds under replay.
+- **Forced-failure test** (`test_replay_redeadletters_when_provider_still_down`):
+  dead-letter via simulate-failure, then force the provider to keep throwing during
+  replay → returns `503 replay_failed` and classify_event's exhaustion path writes a
+  SECOND DLQ row + second `dead_lettered` receipt (both resolved=false).
+- **Verification:** admin tests **13 passed** locally (both critical tests' printed
+  counts captured above); full suite **107 passed, 1 skipped locally and in-
+  container** (94 prior + 13 new admin). `docker compose build app` +
+  `docker compose up -d` succeeded before the in-container run.
+
 ---
