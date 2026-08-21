@@ -12,7 +12,7 @@ import difflib
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models import Identity, IdentityLink, ManualReviewQueue
+from app.db.models import Event, Identity, IdentityLink, ManualReviewQueue
 from app.logging import get_logger
 from app.services.receipts import write_receipt
 
@@ -356,15 +356,23 @@ async def resolve_review(
     """Resolve a manual-review entry: ``merge_into`` an identity or ``create_new``.
 
     On resolution the entry is closed (``status="resolved"``, ``resolved_at`` set)
-    and the event is linked to the chosen identity, resuming its pipeline. The
-    returned descriptor includes the resolved ``identity_id``; downstream pipeline
-    stages (interpret/score/act, later phases) continue from here.
+    and the event is linked to the chosen identity. The returned descriptor carries
+    the resolved ``identity_id`` and the ``event_id`` so the caller can resume the
+    halted pipeline (interpret -> score -> act) for that event.
+
+    Both branches commit exactly once, so the review closure, the identity link,
+    and every receipt land in a single transaction — a crash mid-resolution cannot
+    leave a linked-but-unreceipted identity behind.
     """
     entry = (
         await db.execute(select(ManualReviewQueue).where(ManualReviewQueue.id == review_id))
     ).scalars().first()
     if entry is None:
         raise LookupError("review not found")
+
+    start = time.monotonic()
+    event_id = entry.event_id
+    resolved_at = datetime.now(timezone.utc)
 
     if decision == "merge_into":
         if identity_id is None:
@@ -376,9 +384,9 @@ async def resolve_review(
             raise LookupError("candidate identity not found")
         entry.resolution = decision
         entry.status = "resolved"
-        entry.resolved_at = datetime.now()
+        entry.resolved_at = resolved_at
         link = IdentityLink(
-            identity_id=target.id, event_id=entry.event_id,
+            identity_id=target.id, event_id=event_id,
             match_confidence=Decimal("1.00"), match_rule="manual_review_resolve",
         )
         db.add(link)
@@ -387,23 +395,64 @@ async def resolve_review(
             action_type="review_resolved",
             entity_id=entry.id,
             entity_type="manual_review",
-            event_id=entry.event_id,
+            event_id=event_id,
             identity_id=target.id,
             metadata={"resolution": decision, "review_id": str(entry.id)},
         )
         await db.commit()
-        return {"status": "resolved", "identity_id": target.id, "review_id": entry.id}
+        return {"status": "resolved", "identity_id": target.id,
+                "review_id": review_id, "event_id": event_id}
 
-    # create_new
-    new_identity = Identity(display_name="review_resolved")
+    # create_new. The reviewer judged the fuzzy candidate to be a different person,
+    # so this mints a brand-new canonical identity — and therefore owes an
+    # `identity_created` receipt exactly like the two automatic creation paths
+    # above (_link_via_exact and the fuzzy-no-candidate branch). Omitting it
+    # desynchronized the identities <-> identity_created reconciliation pair the
+    # first time a reviewer chose this branch, which fails FR-10 and Success
+    # Criterion #2 (variance must be 0).
+    #
+    # The display name is carried over from the event's identity fields rather
+    # than a "review_resolved" placeholder, which was leaking into API output as
+    # if it were the contact's name. Manual review is only reachable via the
+    # fuzzy-name or no-identity-fields paths, so there is never an email/phone to
+    # promote here — display_name is the only field available, and may be None.
+    event = (
+        await db.execute(select(Event).where(Event.id == event_id))
+    ).scalars().first()
+    fields: dict = (event.identity_fields or {}) if event is not None else {}
+    display_name = (fields.get("name") or fields.get("display_name") or "").strip() or None
+
+    new_identity = Identity(display_name=display_name)
     db.add(new_identity)
-    await db.commit()
-    await db.refresh(new_identity)
+    await db.flush()  # populate new_identity.id before the link/receipts reference it
+    await write_receipt(
+        db,
+        action_type="identity_created",
+        entity_id=new_identity.id,
+        entity_type="identity",
+        event_id=event_id,
+        identity_id=new_identity.id,
+        metadata={"match_rule": "manual_review_resolve", "match_confidence": "1.00",
+                  "review_id": str(review_id)},
+    )
+    logger.info(
+        "identity_created",
+        input_id=str(event_id),
+        decision="linked",
+        reason="new identity created by manual-review resolution (create_new)",
+        action="identity_created",
+        result="ok",
+        error=None,
+        timing_ms=round((time.monotonic() - start) * 1000, 2),
+        identity_id=str(new_identity.id),
+        match_rule="manual_review_resolve",
+        name=new_identity.display_name,  # PII — redacted by _pii_redactor
+    )
     entry.resolution = decision
     entry.status = "resolved"
-    entry.resolved_at = datetime.now()
+    entry.resolved_at = resolved_at
     link = IdentityLink(
-        identity_id=new_identity.id, event_id=entry.event_id,
+        identity_id=new_identity.id, event_id=event_id,
         match_confidence=Decimal("1.00"), match_rule="manual_review_resolve",
     )
     db.add(link)
@@ -412,9 +461,10 @@ async def resolve_review(
         action_type="review_resolved",
         entity_id=entry.id,
         entity_type="manual_review",
-        event_id=entry.event_id,
+        event_id=event_id,
         identity_id=new_identity.id,
         metadata={"resolution": decision, "review_id": str(entry.id)},
     )
     await db.commit()
-    return {"status": "resolved", "identity_id": new_identity.id, "review_id": entry.id}
+    return {"status": "resolved", "identity_id": new_identity.id,
+            "review_id": review_id, "event_id": event_id}

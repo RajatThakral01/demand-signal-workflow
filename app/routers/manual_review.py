@@ -8,14 +8,17 @@ not a real third-party integration.
 
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ManualReviewQueue
+from app.db.models import Event, ManualReviewQueue
 from app.db.session import get_db_session
 from app.logging import get_logger
+from app.services.interpret import InterpretError
+from app.services.pipeline import run_downstream
 from app.services.resolve import get_pending_reviews, resolve_review
 
 router = APIRouter(prefix="/api/v1/manual-review", tags=["manual-review"])
@@ -60,9 +63,18 @@ async def resolve_manual_review(
     """Resolve a manual-review entry and resume the event's pipeline.
 
     ``decision`` is ``merge_into`` (requires ``identity_id``) or ``create_new``.
-    Returns 200 with the resolved review + chosen ``identity_id``; 404 if the
-    review or (for merge_into) the target identity is missing; 409 if the review
-    was already resolved.
+    Returns 200 with the resolved review, the chosen ``identity_id`` and the
+    resumed pipeline result (label, score, decision, lead, queue, SLA) per the PRD
+    API table; 404 if the review or (for merge_into) the target identity is
+    missing; 409 if the review was already resolved.
+
+    Flow 3 step 4: resolution is what un-halts the event. Ingest stopped at the
+    resolve stage, so interpret -> score -> act have never run for this event and
+    are executed here through the same shared runner the ingest path uses. If
+    interpretation exhausts its bounded retries the event dead-letters exactly as
+    it would on first pass and this returns 202 with ``status="dead_letter"`` —
+    the review itself stays resolved, and the event is replayable via
+    ``POST /api/v1/admin/replay/{event_id}``.
     """
     start = time.monotonic()
     entry = (
@@ -82,16 +94,55 @@ async def resolve_manual_review(
 
     logger.info(
         "review_resolved",
-        input_id=str(entry.event_id),
+        input_id=str(result["event_id"]),
         decision="resolved",
         reason=f"manual review resolved as {body.decision}",
         action="review_resolved",
         result="ok",
         error=None,
         timing_ms=round((time.monotonic() - start) * 1000, 2),
-        review_id=str(entry.id),
+        review_id=str(result["review_id"]),
         identity_id=str(result["identity_id"]),
     )
 
-    return {"status": result["status"], "review_id": result["review_id"],
-            "identity_id": result["identity_id"]}
+    resolved = {
+        "status": result["status"],
+        "review_id": str(result["review_id"]),
+        "identity_id": str(result["identity_id"]),
+        "event_id": str(result["event_id"]),
+    }
+
+    event = (
+        await db.execute(select(Event).where(Event.id == result["event_id"]))
+    ).scalars().first()
+    if event is None:
+        # The review row carries a FK to events, so this is unreachable in practice;
+        # surface it rather than silently returning a half-resolved review.
+        raise HTTPException(status_code=409, detail={"error": "event_not_found"})
+
+    try:
+        outcome = await run_downstream(db, event, result["identity_id"])
+    except InterpretError:
+        return JSONResponse(
+            status_code=202,
+            content={**resolved, "pipeline_status": "dead_letter", "stage": "interpret"},
+        )
+
+    interpret = outcome["interpret"] or {}
+    score_row = outcome["score_row"]
+    act_result = outcome["act_result"] or {}
+    return {
+        **resolved,
+        "pipeline_status": "resumed",
+        "interpret_status": interpret.get("status"),
+        "label": interpret.get("label"),
+        "interpretation_id": interpret.get("interpretation_id"),
+        "score": score_row.score if score_row else None,
+        "decision_outcome": score_row.decision if score_row else None,
+        "lead_id": act_result.get("lead_id"),
+        "lead_op": act_result.get("lead_op"),
+        "queue": act_result.get("queue"),
+        "rule_matched": act_result.get("rule_matched"),
+        "sla_deadline": act_result.get("sla_deadline"),
+        "attribution_touch_id": act_result.get("attribution_touch_id"),
+    }

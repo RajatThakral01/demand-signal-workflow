@@ -11,16 +11,15 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Event, Interpretation, Score
+from app.db.models import Event, Score
 from app.errors import MalformedJSONError
 from app.db.session import get_db_session
 from app.schemas.events import event_adapter
 from app.schemas.responses import EventIngestResponse
 from app.services import ingest
-from app.services.act import act as act_pipeline
-from app.services.interpret import InterpretError, classify_event
+from app.services.interpret import InterpretError
+from app.services.pipeline import run_downstream
 from app.services.resolve import resolve_identity
-from app.services.score import score_event
 
 router = APIRouter(prefix="/api/v1", tags=["events"])
 
@@ -144,37 +143,24 @@ async def create_event(
         )
 
     identity_id = str(resolution["identity_id"])
-    # Flow 1 step 4: interpretation (LIVE OpenRouter). Short text skips the LLM;
-    # a provider failure surfaces as a visible interpret_status="error" rather
-    # than a fabricated unknown. (Dead-letter integration is Phase 8.)
+    # Flow 1 steps 4-6: interpret (LIVE OpenRouter) -> score -> act, via the shared
+    # runner also used by the manual-review resume and the admin replay paths.
+    # Short text skips the LLM; a provider failure after bounded retries raises
+    # InterpretError (dead-letter row + receipt already written) rather than
+    # fabricating an unknown.
     try:
-        interpret = await classify_event(db, event)
+        outcome = await run_downstream(db, event, resolution["identity_id"])
     except InterpretError:
         # Pipeline halts: no score, no lead, no route for this event. A
         # dead_letter_queue row + `dead_lettered` receipt were written inside
-        # classify_event (atomic). Phase 8c replay will resume from here.
-        # PRD §4 Error States requires 202 for provider timeout/429 exhaustion.
+        # classify_event (atomic), and the entry is listable via
+        # GET /api/v1/dead-letter. PRD §4 Error States requires 202 here.
         response.status_code = 202
         return _dead_letter_response(str(event.id), status_flag, stage="interpret")
 
-    # Flow 1 step 5: score (FR-5). Requires the interpretation ORM row. Only score
-    # when interpretation succeeded (label present); a provider failure above skips
-    # scoring. An edit re-run upserts the existing score row.
-    interp_obj = (
-        await db.execute(
-            select(Interpretation).where(Interpretation.event_id == event.id)
-        )
-    ).scalars().first()
-    score_row = None
-    if interp_obj is not None:
-        score_row = await score_event(db, event, resolution.get("identity_id"), interp_obj)
-        await db.commit()   # Score commit (unchanged)
-
-    # Flow 1 step 6: act — create/update lead + route (FR-6, FR-7). Uses raw UUID.
-    act_result = await act_pipeline(db, event, resolution["identity_id"], score_row)
-
-    return _interpret_response(str(event.id), status_flag, identity_id, interpret,
-                               score_row, act_result)
+    return _interpret_response(str(event.id), status_flag, identity_id,
+                               outcome["interpret"], outcome["score_row"],
+                               outcome["act_result"])
 
 
 @router.get("/events/{event_id}", response_model=dict)

@@ -36,20 +36,39 @@ class Base(DeclarativeBase):
 class Event(Base):
     """Raw demand signal as ingested, before downstream resolution.
 
-    ``dedupe_key`` carries a UNIQUE constraint (DB-enforced, not just app logic)
-    so racing duplicates cannot produce a second row (FR-2). ``payload_hash`` is
-    compared on a ``dedupe_key`` hit to distinguish a true duplicate (no-op) from
-    an edit (update + re-run pipeline).
+    ``dedupe_key`` carries a DB-enforced partial UNIQUE index scoped to
+    ``is_valid = true`` (not just app logic) so racing duplicates cannot produce a
+    second accepted row (FR-2). ``payload_hash`` is compared on a ``dedupe_key``
+    hit to distinguish a true duplicate (no-op) from an edit (update + re-run
+    pipeline), and is advanced to the incoming hash on every edit.
+
+    Why the index is partial rather than a plain column UNIQUE: dedupe/edit
+    detection is a contract over *accepted* events. A schema-invalid row is an
+    immutable audit record (FR-1: never dropped), and two rejected submissions of
+    the same bad payload are two distinct rejection facts — each needs its own row
+    and its own ``event_rejected`` receipt to keep reconciliation variance at zero.
+    Under a global UNIQUE(dedupe_key) the second rejection raised IntegrityError
+    (a 500), and a later *corrected* resubmission was mistaken for an edit of the
+    rejected row, running the pipeline on a row still flagged ``is_valid=false``.
     """
 
     __tablename__ = "events"
+
+    __table_args__ = (
+        Index(
+            "uq_events_dedupe_key_valid",
+            "dedupe_key",
+            unique=True,
+            postgresql_where="is_valid = true AND dedupe_key IS NOT NULL",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     external_event_id: Mapped[str] = mapped_column(String, nullable=False)
     source: Mapped[str] = mapped_column(String, nullable=False)
-    dedupe_key: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    dedupe_key: Mapped[str | None] = mapped_column(String, nullable=True)
     payload_hash: Mapped[str] = mapped_column(String, nullable=False)
     is_edit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     schema_version: Mapped[str] = mapped_column(String, nullable=False)

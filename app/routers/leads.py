@@ -2,7 +2,9 @@
 
 Read-only views over leads + their latest route + the latest score for the
 source event. ``escalated`` is computed-on-read (sla_deadline < now()); no
-scheduler is added (per Route model docstring).
+scheduler is added (per PRD §12 open item). The first read that observes a breach
+persists the flag and writes an ``escalated`` receipt — see
+app/services/escalation.py for why the read path is allowed that one write.
 """
 
 import uuid
@@ -14,12 +16,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AttributionTouch, Event, Lead, Route, Score
 from app.db.session import get_db_session
+from app.services.escalation import evaluate_escalation
 
 router = APIRouter(prefix="/api/v1", tags=["leads"])
 
 
 async def _latest_route(db: AsyncSession, lead_id: uuid.UUID) -> Route | None:
-    """Most recent route for a lead (a re-route appends a new row)."""
+    """The lead's route. ``routes.lead_id`` is UNIQUE (migration 0009), so there is
+    at most one; the ordering is retained only as a deterministic tie-break for
+    databases created before that constraint landed."""
     return (
         await db.execute(
             select(Route)
@@ -42,7 +47,8 @@ async def _latest_score(db: AsyncSession, event_id: uuid.UUID) -> Score | None:
     ).scalars().first()
 
 
-def _lead_dict(lead: Lead, route: Route | None, score: Score | None) -> dict:
+def _lead_dict(lead: Lead, route: Route | None, score: Score | None,
+               escalated: bool = False) -> dict:
     return {
         "lead_id": str(lead.id),
         "identity_id": str(lead.identity_id),
@@ -53,6 +59,7 @@ def _lead_dict(lead: Lead, route: Route | None, score: Score | None) -> dict:
         "queue": route.queue if route else None,
         "rule_matched": route.rule_matched if route else None,
         "sla_deadline": route.sla_deadline.isoformat() if route else None,
+        "escalated": escalated,
         "score": score.score if score else None,
         "decision": score.decision if score else None,
     }
@@ -69,7 +76,9 @@ async def list_leads(
 
     Returns an empty list when no filters match (never 404). ``source`` filters
     on the source event's connector; ``decision`` on the latest score for the
-    source event.
+    source event. ``escalated`` is evaluated on read (see
+    app/services/escalation.py) and a newly-observed SLA breach is persisted +
+    receipted in a single commit at the end of the request.
     """
     stmt = select(Lead)
     if status:
@@ -89,7 +98,9 @@ async def list_leads(
         if decision:
             if score is None or score.decision != decision:
                 continue
-        results.append(_lead_dict(lead, route, score))
+        escalated = await evaluate_escalation(db, route, lead.identity_id)
+        results.append(_lead_dict(lead, route, score, escalated))
+    await db.commit()  # persists any escalated flags + `escalated` receipts
     return results
 
 
@@ -112,12 +123,13 @@ async def get_lead(
             select(AttributionTouch).where(AttributionTouch.identity_id == lead.identity_id)
         )
     ).scalars().first()
+    escalated = await evaluate_escalation(db, route, lead.identity_id)
+    await db.commit()  # persists a newly-observed breach + its `escalated` receipt
 
     return {
-        **_lead_dict(lead, route, score),
+        **_lead_dict(lead, route, score, escalated),
         "route_id": str(route.id) if route else None,
         "assigned_at": route.assigned_at.isoformat() if route else None,
-        "escalated": route.escalated if route else False,
         "score_features": score.features if score else None,
         "policy_version": score.policy_version if score else None,
         "first_touch_at": touch.first_touch_at.isoformat() if touch else None,

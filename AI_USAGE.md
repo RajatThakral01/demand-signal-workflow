@@ -695,3 +695,179 @@ this file is `ai-usage.json`.
   `docker compose up -d` succeeded before the in-container run.
 
 ---
+
+### Session: Phase 0–8 audit — 7 defect fixes, dead-letter endpoint, escalation, LIVE/SIMULATED labels
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0017`
+- **Date:** 2026-08-21
+- **Provider / model:** Anthropic, Claude Opus 5 (Claude Code). No OpenRouter call
+  this session — every test stubs `interpret._call_llm`.
+- **Prompt intent:** an end-to-end audit of Phases 0–8 against
+  `docs/PRD_Demand_Signal_Workflow_v1_2.md` and
+  `docs/Project02_Implementation_Plan_v1.md`, then "fix all these issues one by
+  one". The audit found 6 defects; a 7th surfaced while fixing them.
+
+**Defect 1 — `payload_hash` not advanced on edit (FR-2).**
+`app/services/ingest.py` set `is_edit = True` and replaced `raw_payload` but left
+`payload_hash` at the *original* value. Since that column is the stored comparand
+for every future submission on the same `dedupe_key`, the row was permanently
+unequal to its own content: resubmitting the edited payload re-detected as an edit
+forever (an extra `event_edited` receipt plus a redundant interpret→score→act on
+every submission, growing reconciliation variance without bound), while
+resubmitting the *original* payload was misread as a true duplicate — silently
+discarding a real revert. Fix: advance `payload_hash` to the incoming hash and
+record `previous_payload_hash` + `payload_hash` in the `event_edited` receipt
+metadata so the transition stays auditable.
+
+**Defect 2 — `create_new` review resolution minted an unreceipted identity (FR-9).**
+`resolve_review`'s `create_new` branch inserted an `Identity` with no
+`identity_created` receipt, which is exactly the "state mutated without a receipt"
+condition FR-9 forbids, and put the `identities` ↔ `identity_created`
+reconciliation pair permanently at nonzero variance. Fix: write the receipt with
+`match_rule="manual_review_resolve"`, `match_confidence="1.00"` and the
+`review_id`, plus the matching `identity_created` structured log line. The new
+identity's `display_name` is now derived from the event's `identity_fields`
+(`name` → `display_name`) instead of being left NULL.
+
+**Defect 3 — resolving a manual review never resumed the pipeline (Flow 3 step 4).**
+This was the largest gap. Ingest deliberately halts an ambiguous event *before*
+interpret, so resolution is the only thing that can un-halt it — but
+`POST /api/v1/manual-review/{id}/resolve` linked the identity and returned. The
+event was left with no interpretation, score, lead, route or attribution touch,
+permanently. Fix: extracted `app/services/pipeline.py::run_downstream` as the one
+shared interpret→score→act runner and pointed **all three** entry points at it —
+ingest (`app/routers/events.py`), the manual-review resume, and admin replay — so
+they cannot drift. Ingest and resume surface an exhausted-retry failure as `202`
+with `status="dead_letter"`; replay keeps its `503 replay_failed`. The resolve
+response now returns `pipeline_status`, `label`, `score`, `decision_outcome`,
+`lead_id`, `lead_op`, `queue`, `rule_matched`, `sla_deadline` and
+`attribution_touch_id`, matching the PRD's API table.
+
+**Defect 4 — `UNIQUE(events.dedupe_key)` was global, not scoped to accepted rows.**
+Two distinct symptoms from one root cause. (a) Resubmitting the same
+schema-invalid payload raised `IntegrityError` → **500**, which also broke "never
+silently drop an invalid event" — the caller got an error instead of a persisted
+rejection. (b) A *corrected* resubmission of the same `external_event_id` matched
+the rejected row's `dedupe_key` and was treated as an **edit of a row still
+flagged `is_valid=false`**, running the whole pipeline against it and never
+producing a clean accepted event. Fix: migration `0011` replaces the constraint
+with a partial unique index `WHERE is_valid = true AND dedupe_key IS NOT NULL`,
+and `find_event_by_dedupe_key` is scoped to `is_valid = true` to match.
+  - *Considered and rejected:* catching `IntegrityError` in `persist_invalid_event`
+    and collapsing repeat rejections onto one row. That fixes only symptom (a),
+    leaves (b) intact, and desynchronizes the `events_rejected` ↔ `event_rejected`
+    pair (one row, N receipts). Scoping the index keeps each rejection its own row
+    *and* its own receipt, so variance stays 0.
+  - The migration looks the auto-generated constraint name up from `pg_constraint`
+    rather than hardcoding `events_dedupe_key_key`. `downgrade()` NULLs duplicate
+    `dedupe_key`s (keeping the oldest valid row) before restoring the global
+    constraint, so no audit row is ever deleted.
+
+**Defect 5 — `routes.escalated` was never evaluated.** Three separate docstrings
+described it as computed-on-read, but nothing computed it and `escalated` was
+absent from the `/leads` list payload entirely. FR-9 also names an `escalated`
+action type that was missing from `VALID_ACTION_TYPES`, so the transition could not
+have been receipted even if something had set the flag. Fix: new
+`app/services/escalation.py` with a pure `is_sla_breached()` (strict `<`, so a route
+sitting exactly on its deadline has not yet breached — matching the `>=`-at-threshold
+convention in `resolve.should_auto_link` and `score._decide`; naive timestamps are
+coerced to UTC rather than raising) and `evaluate_escalation()`, which performs a
+monotonic false→true transition, writes the `escalated` receipt once, and does not
+commit (the caller owns the transaction). Both leads endpoints now call it and
+commit. On-read detection rather than a scheduler is the PRD's own recommendation
+(§12 open item, line 421) — no new dependency, and FR-9's `escalated` receipt
+becomes real.
+
+**Defect 6 — `manual_review_queue.resolved_at` left NULL** on resolution, so the
+queue recorded *that* an entry closed but not *when*. Fixed in the same
+`resolve_review` rewrite; both branches now commit exactly once.
+
+**Defect 7 (found while fixing) — `events_edited` reconciliation manufactured
+variance.** `events.is_edit` is a sticky boolean — set once, never unset — so the
+entity side counts "events that have ever been edited" while the receipt side
+counted raw `event_edited` receipts. Any event edited twice (two genuinely
+different payloads, two legitimate receipts, still one row) reported variance 1 and
+failed the FR-10 / Success-Criterion-2 gate. Fixed with
+`COUNT(DISTINCT receipts.event_id)` on that pair only; audited all 8 pairs and
+confirmed it is the only one affected.
+
+**API gaps closed.**
+  - `GET /api/v1/dead-letter` (new `app/routers/dead_letter.py`): the PRD's Error
+    States table promises a dead-lettered event is "visible in
+    `/api/v1/dead-letter`". Phase 8b wrote the rows and 8c added replay, but nothing
+    could *enumerate* what needed replaying without direct SQL. Read-only and
+    unauthenticated (the PRD lists 200 only; the bearer gate covers the mutating
+    admin endpoints), `?resolved=` filtered, ordered oldest-first because the list
+    doubles as a replay worklist, and each entry carries a `replay_url` so a UI
+    needs no client-side URL construction.
+  - `/dashboard/reconciliation` now returns the PRD's top-level
+    `{"variance": N, "status": "PASS"|"FAIL"}` alongside the FR-10 per-metric rows,
+    and accepts `since`/`until` (PRD §3 criterion 2, "for the same time window")
+    applied to **both** sides of every comparison. This is exact because Postgres
+    evaluates `now()` once per transaction and an entity plus its receipt are always
+    written in one transaction, so a window cannot split a pair. `overall_status`
+    and `total_variance` are retained as aliases so existing callers keep working.
+  - *Deliberately NOT added:* `interpreted` / `scored` reconciliation pairs. Those
+    receipts accumulate per pipeline re-run while the row count stays at 1
+    (`interpretations.event_id` is UNIQUE), so pairing them would break the
+    variance-0 gate by construction.
+
+**Compliance (Phase 1 / Phase 3 gates).** `README.md` now carries the
+LIVE/SIMULATED/TEST/MOCKED table at the point of use: all three connectors
+SIMULATED (internal fixture generators, no Reddit/social/ESP API ever called),
+classification LIVE via OpenRouter, `simulate-failure` test-harness-only, test-suite
+LLM calls MOCKED — plus the two efficiency short-circuits that mean not every event
+triggers the LIVE call, and a migration note for `0011`.
+
+- **Files modified:** `app/services/ingest.py`, `app/services/resolve.py`,
+  `app/services/pipeline.py` (new), `app/services/escalation.py` (new),
+  `app/services/receipts.py`, `app/db/models.py`,
+  `app/db/migrations/versions/0011_events_dedupe_key_valid_only.py` (new),
+  `app/routers/events.py`, `app/routers/manual_review.py`, `app/routers/admin.py`,
+  `app/routers/leads.py`, `app/routers/dashboard.py`,
+  `app/routers/dead_letter.py` (new), `app/main.py`,
+  `tests/unit/test_escalation.py` (new),
+  `tests/integration/test_phase8_audit_fixes.py` (new), `README.md`, `AI_USAGE.md`,
+  `ai-usage.json`.
+- **Test coverage:** 27 new tests, each of which fails against the pre-fix code.
+  `tests/unit/test_escalation.py` (7) pins the SLA boundary — before / exactly at /
+  after the deadline, naive-tz coercion, `None` — and asserts every FR-9-named
+  action is registered in `VALID_ACTION_TYPES`.
+  `tests/integration/test_phase8_audit_fixes.py` (20) covers: edited payload
+  resubmitted → `duplicate:true`; `payload_hash` advanced with both hashes in the
+  receipt; revert to the original re-detected as an edit; two distinct edits keep
+  variance 0 (the defect-7 DISTINCT fix); `create_new` writes `identity_created`;
+  `resolved_at` set and surfaced by the list endpoint; resolve → `pipeline_status:
+  "resumed"` with label/score/lead **and** the Interpretation / Score / Lead /
+  Route / AttributionTouch rows asserted present for the previously-parked event;
+  `merge_into` → `lead_op:"updated"` with exactly one lead for the merged identity;
+  the same invalid payload twice → two 200s / 2 rows / 2 `event_rejected` receipts;
+  three repeat rejections at variance 0; corrected resubmission → a new accepted
+  event (not an edit), both rows sharing one `dedupe_key`, zero `event_edited`
+  receipts; backdated SLA → `escalated:true`, persisted on the route, exactly one
+  `escalated` receipt, idempotent across 4 further reads, and exposed by the list
+  endpoint; unbreached SLA not escalated; dead-letter listing fields +
+  `replay_url`, `?resolved=` filtering after a replay, and empty when nothing
+  failed; reconciliation top-level `variance`/`status` + `since`/`until`.
+- **Verification (and its limits, stated plainly):** `python -m compileall` clean
+  across every changed module; all 11 routes confirmed registered via
+  `app.openapi()["paths"]` including the new `GET /api/v1/dead-letter`; **unit suite
+  45 passed** (38 pre-existing + 7 new); the 20 new integration tests **collect**
+  cleanly. The integration suite was **not executed** — the Docker daemon is not
+  running in this environment and Postgres is unreachable (`pg_isready -h /tmp` no
+  response; `localhost:5432` "Operation not permitted"), so the integration results
+  above are unverified and must be run by the maintainer:
+  `docker compose run --rm --no-deps -v "$PWD/tests:/app/tests" -v "$PWD/pytest.ini:/app/pytest.ini" --entrypoint pytest app -q`.
+  Migration `0011` must also be applied to any existing database
+  (`alembic upgrade head`); the test suite builds its schema from
+  `Base.metadata.create_all`, so it picks up the partial index from the model.
+- **Still outstanding (not fixed here, deliberately):**
+  - The Phase 3 gate "log actual token usage from a real test run into the README's
+    cost section — not an estimate" still cannot be satisfied: this environment's
+    network access does not reach OpenRouter, so no live call is possible. The
+    README says so explicitly rather than carrying an estimate dressed up as a
+    measurement.
+  - `/api/v1/dashboard/summary` and the Jinja2 dashboard screens are Phase 9 per the
+    implementation plan and were left out of scope on purpose.
+
+---
+
