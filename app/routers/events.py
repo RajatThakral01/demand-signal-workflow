@@ -6,7 +6,7 @@ No real social/email/webhook integration is ever called (PRD §2 / Appendix).
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,9 +64,26 @@ def _interpret_response(event_id: str, status_flag: str, identity_id: str,
     )
 
 
+def _dead_letter_response(event_id: str, status_flag: str, stage: str) -> EventIngestResponse:
+    """Build the ingest response for a dead-lettered event (FR-11, Phase 8b).
+
+    The pipeline halts at the failing stage: no score/lead/route. Mirrors the PRD
+    Error States table: ``{"event_id":..., "status": "dead_letter", "stage": ...}``.
+    """
+    return EventIngestResponse(
+        event_id=event_id,
+        is_edit=(status_flag == "edit"),
+        is_valid=True,
+        status="dead_letter",
+        interpret_status="error",
+        stage=stage,
+    )
+
+
 @router.post("/events", response_model=EventIngestResponse)
 async def create_event(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db_session),
 ) -> EventIngestResponse:
     """Ingest a single demand signal from any of the three SIMULATED sources.
@@ -78,6 +95,9 @@ async def create_event(
       * True duplicate (same dedupe_key + payload_hash) -> 200 ``duplicate=true``.
       * Edit (same dedupe_key, different payload_hash) -> 200, row updated,
         ``is_edit=true``.
+      * LLM provider timeout/429 after retries exhausted -> 202
+        ``{"event_id":..., "status": "dead_letter", "stage": "interpret"}``
+        (PRD §4 Error States).
     """
     try:
         raw = await request.body()
@@ -130,12 +150,12 @@ async def create_event(
     try:
         interpret = await classify_event(db, event)
     except InterpretError:
-        # Pipeline halts: no score, no lead, no route for this event.
-        # Phase 8 dead-letter + replay mechanism will resume the pipeline
-        # from this point when the provider recovers, so the lead is not
-        # permanently lost — it will be created on replay.
-        return _interpret_response(str(event.id), status_flag, identity_id,
-                                   {"status": "error"})
+        # Pipeline halts: no score, no lead, no route for this event. A
+        # dead_letter_queue row + `dead_lettered` receipt were written inside
+        # classify_event (atomic). Phase 8c replay will resume from here.
+        # PRD §4 Error States requires 202 for provider timeout/429 exhaustion.
+        response.status_code = 202
+        return _dead_letter_response(str(event.id), status_flag, stage="interpret")
 
     # Flow 1 step 5: score (FR-5). Requires the interpretation ORM row. Only score
     # when interpretation succeeded (label present); a provider failure above skips

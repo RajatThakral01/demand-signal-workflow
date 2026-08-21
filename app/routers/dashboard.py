@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
     AttributionTouch,
+    DeadLetterQueue,
     Event,
     Identity,
     Lead,
@@ -61,6 +62,9 @@ async def reconciliation(
         "attribution_touches": (
             await db.execute(select(func.count()).select_from(AttributionTouch))
         ).scalar_one(),
+        "dead_letter_queue": (
+            await db.execute(select(func.count()).select_from(DeadLetterQueue))
+        ).scalar_one(),
     }
 
     # receipt_count per entity-action pair (some entities also have *_updated /
@@ -74,6 +78,7 @@ async def reconciliation(
         "leads": ("lead", "lead_created"),
         "routes": ("route", "routed"),
         "attribution_touches": ("attribution_touch", "attributed_created"),
+        "dead_letter_queue": ("dead_letter", "dead_lettered"),
     }
 
     reconciliation: list[dict] = []

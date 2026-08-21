@@ -31,6 +31,10 @@ class EventIngestResponse(BaseModel):
     interpret_status: str | None = None
     label: str | None = None
     interpretation_id: str | None = None
+    # Dead-letter state (Phase 8b, FR-11). When interpretation exhausts its bounded
+    # retries, the event is dead-lettered: status="dead_letter" and stage names the
+    # failing pipeline stage (e.g. "interpret"). No score/lead/route is produced.
+    stage: str | None = None
     # Scoring state (Phase 4). ``score`` is null when label=unknown (needs_review).
     score: int | None = None
     decision: str | None = None

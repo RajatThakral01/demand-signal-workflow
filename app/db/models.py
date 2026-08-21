@@ -345,3 +345,30 @@ class Receipt(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class DeadLetterQueue(Base):
+    """A pipeline stage that failed permanently after bounded retries (FR-11).
+
+    One row per dead-lettered pipeline attempt. `stage` names the pipeline stage
+    that failed (e.g. "interpret"); `error` holds the sanitized exception message
+    (truncated, no raw secrets); `retry_count` records the actual attempts made;
+    `resolved` flips true when a dead-letter is replayed/resolved (Phase 8c admin
+    endpoint). Rows are written atomically with a `dead_lettered` receipt.
+    """
+
+    __tablename__ = "dead_letter_queue"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id"), nullable=False
+    )
+    stage: Mapped[str] = mapped_column(Text, nullable=False)
+    error: Mapped[str] = mapped_column(Text, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

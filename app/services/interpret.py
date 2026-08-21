@@ -32,7 +32,7 @@ from tenacity import (
 )
 
 from app.config import settings
-from app.db.models import Event, Interpretation
+from app.db.models import DeadLetterQueue, Event, Interpretation
 from app.logging import get_logger
 from app.services.receipts import write_receipt
 
@@ -306,33 +306,49 @@ async def classify_event(
         reraise=True,
     )
     result: dict | None = None
+    attempt_count = 0
     try:
         async for attempt in retrying:
             with attempt:
+                attempt_count += 1
                 result = await _call_llm(text)
     except Exception as exc:  # noqa: BLE001 - last provider failure after bounded retries
+        # Terminal outcome after bounded retries: dead-letter the event. Write the
+        # dead_letter_queue row AND a `dead_lettered` receipt in the SAME commit
+        # (FR-9 atomicity), then surface a visible error to the router.
+        # Sanitize/truncate the provider error — no raw secrets, no unbounded text.
+        sanitized = str(exc)[:500]
+        dlq = DeadLetterQueue(
+            event_id=event.id,
+            stage="interpret",
+            error=sanitized,
+            retry_count=attempt_count,
+        )
+        db.add(dlq)
+        await db.flush()  # populate dlq.id before the receipt references it
         await write_receipt(
             db,
-            action_type="interpreted",
-            entity_id=event.id,  # no interpretation row exists on the error path
-            entity_type="interpretation",
+            action_type="dead_lettered",
+            entity_id=dlq.id,
+            entity_type="dead_letter",
             event_id=event.id,
-            metadata={"error": str(exc)},
+            metadata={"stage": "interpret", "retry_count": attempt_count},
             status="error",
         )
-        await db.commit()
+        await db.commit()  # DLQ row + dead_lettered receipt committed together
         logger.error(
-            "interpret_error",
+            "interpret_dead_lettered",
             input_id=str(event.id),
-            decision="error",
-            reason=f"classification failed after {max_attempts} attempts",
-            action="interpreted",
+            decision="dead_letter",
+            reason=f"classification failed after {attempt_count} attempts; event dead-lettered",
+            action="dead_lettered",
             result="error",
-            error=str(exc),
+            error=sanitized,
             timing_ms=round((time.monotonic() - start) * 1000, 2),
+            retry_count=attempt_count,
         )
         raise InterpretError(
-            f"classification failed after {max_attempts} attempts: {exc}",
+            f"classification failed after {attempt_count} attempts: {exc}",
             [exc],
         ) from exc
     if result is None:

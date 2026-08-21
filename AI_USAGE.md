@@ -564,3 +564,64 @@ this file is `ai-usage.json`.
   1 skipped** (91 prior + 1 new regression test).
 
 ---
+
+### Session: Phase 8b — Retry/Backoff + Dead-Letter for the Interpret Stage (FR-11)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0015`
+- **Date:** 2026-08-20
+- **Provider / model:** OpenRouter, `deepseek/deepseek-v4-flash` (no new real API
+  call this phase — dead-letter behavior is tested with mocked provider exceptions).
+- **What was generated:**
+  - `DeadLetterQueue` model in `app/db/models.py` (table `dead_letter_queue`: id PK,
+    event_id FK, stage TEXT, error TEXT, retry_count INTEGER, resolved BOOLEAN
+    default false, created_at). Alembic `0010_dead_letter_queue` (down_revision
+    `0009_routes_lead_id_unique`; ix_dead_letter_event_id + ix_dead_letter_resolved).
+  - `app/services/interpret.py`: on retry exhaustion (bounded by `_is_retryable`),
+    the event is now dead-lettered — a `dead_letter_queue` row (stage="interpret",
+    sanitized/truncated error ≤500 chars, retry_count=actual attempts) plus a
+    `dead_lettered` receipt are written in a SINGLE commit (FR-9 atomicity),
+    replacing the previous `interpreted`/status="error" receipt for this path.
+    Per-attempt retry backoffs are still logged via structlog (7 fields), not
+    receipted. Retry config confirmed env-configurable: `retry_max_attempts`
+    (default 3) and `retry_base_delay_ms` (default 500) are already read from
+    `RETRY_MAX_ATTEMPTS`/`RETRY_BASE_DELAY_MS` by `app/config.py` and used by the
+    tenacity wrapper (no hardcoded literals).
+  - `app/routers/events.py` + `app/schemas/responses.py`: exhaustion now returns
+    `status="dead_letter"`, `stage="interpret"` (new `stage` field), and the
+    pipeline halts (score/act never run) — confirmed the existing short-circuit on
+    InterpretError already prevented score/act from running.
+  - `app/routers/dashboard.py`: added `dead_letter_queue` as a reconciliation pair
+    (`dead_letter_queue` ↔ `dead_lettered` receipt) — see decision below.
+- **`error` action_type finding:** `error` is NEVER used as an `action_type`
+  anywhere in the codebase. It is only used as a `status` value on receipts
+  (`event_rejected`, `dead_lettered`, etc.). So retiring `error`-as-action_type was
+  a no-op; the exhaustion receipt now uses `action_type="dead_lettered"`,
+  `status="error"`.
+- **Decision (reconciliation pair):** `dead_letter_queue` IS now a reconciliation
+  pair (row count vs `dead_lettered` receipt count). Rationale: a dead_letter_queue
+  row is a mutation that must be evidenced by its receipt (written atomically,
+  1:1 today); leaving it out would recreate the exact blind spot the endpoint
+  exists to catch. The PRD doesn't explicitly list it, but it is consistent with
+  the existing routes/leads/attribution_touches pairs, so it was added deliberately
+  (not silently) and disclosed here.
+- **New tests:** `tests/integration/test_dead_letter.py` — (1) exhaustion test:
+  mocked `openai.APITimeoutError` with `retry_max_attempts=3` asserts EXACTLY 3
+  attempts (spy-count), one `dead_letter_queue` row (stage=interpret, retry_count=3,
+  resolved=false), one `dead_lettered` receipt and NO `interpreted`/status=error
+  receipt for that event, no fabricated `unknown` interpretation, and no
+  score/lead/route rows (pipeline halted); API returns status="dead_letter",
+  stage="interpret". (2) retry-budget test: `retry_max_attempts=1` → exactly 1
+  attempt, retry_count=1.
+- **Verification:** dead-letter tests **2 passed**; reconciliation file **6 passed**
+  (new pair variance 0); full suite **94 passed, 1 skipped** locally and in-container
+  (92 prior + 2 new). `\d dead_letter_queue` confirms all columns + indexes + FK.
+- **Addendum (PRD-conformance fix, caught in review):** the dead-letter POST
+  response initially returned HTTP 200 (the route's default) but the PRD §4 Error
+  States table requires **202** for "LLM provider timeout/429 after retries
+  exhausted". Fixed in `app/routers/events.py` by injecting a `Response` object into
+  the handler and setting `response.status_code = 202` on the dead-letter branch
+  only — all other paths through `POST /api/v1/events` (malformed JSON 400,
+  schema-invalid 200, duplicate 200, manual-review 200, normal success 200) are
+  untouched. `test_exhaustion_dead_letters_event_and_halts_pipeline` updated to
+  assert 202. Full suite still **94 passed, 1 skipped** locally and in-container.
+
+---
