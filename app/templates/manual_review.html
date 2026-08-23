@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Manual Review{% endblock %}
+{% block content %}
+<h2>Manual review queue</h2>
+<p class="muted">{{ rows|length }} pending — <a href="/api/v1/manual-review?status=pending" target="_blank">JSON pending</a> · <a href="/api/v1/manual-review?status=resolved" target="_blank">JSON resolved</a></p>
+<table>
+    <thead><tr><th>Review</th><th>Event</th><th>Candidate</th><th>Reason</th><th>Status</th><th>Resolved at</th><th>Action</th></tr></thead>
+    <tbody>
+        {% for r in rows %}
+        <tr>
+            <td class="muted">{{ r.id[:8] }}…</td>
+            <td><a href="/api/v1/events/{{ r.event_id }}" target="_blank">{{ r.event_id[:8] }}…</a></td>
+            <td class="muted">{{ (r.candidate_identity_id or "—")[:12] }}</td>
+            <td>{{ r.reason }}</td>
+            <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
+            <td class="muted">{{ r.resolved_at or "—" }}</td>
+            <td>
+                {% if r.status == "pending" %}
+                <form class="inline" method="post" action="/dashboard/manual-review/{{ r.id }}/resolve">
+                    <input type="hidden" name="decision" value="create_new">
+                    <button type="submit" class="primary">Create new</button>
+                </form>
+                <form class="inline" method="post" action="/dashboard/manual-review/{{ r.id }}/resolve">
+                    <input type="hidden" name="decision" value="merge_into">
+                    <input name="identity_id" placeholder="identity_id" size="18" required>
+                    <button type="submit">Merge into</button>
+                </form>
+                {% else %}—{% endif %}
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="muted">No entries</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p class="muted">Resolve via <code>POST /api/v1/manual-review/{id}/resolve</code> with <code>{"decision":"merge_into"|"create_new","identity_id":"..."}</code>. HTML forms post to <code>/dashboard/manual-review/{id}/resolve</code> (same logic, no bearer needed for this evaluator tooling).</p>
+{% endblock %}

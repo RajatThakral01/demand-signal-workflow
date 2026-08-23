@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Summary{% endblock %}
+{% block content %}
+<h2>Dashboard summary</h2>
+
+<p>
+    <strong>Reconciliation:</strong>
+    <span class="badge badge-{{ recon.status }}">{{ recon.status }}</span>
+    <span class="muted">variance {{ recon.variance }} (overall {{ recon.overall_status }})</span>
+    — <a href="/api/v1/dashboard/reconciliation" target="_blank">JSON</a>
+    {% if recon.status == "PASS" %}<span class="badge badge-PASS">PASS</span>{% else %}<span class="badge badge-FAIL">FAIL</span>{% endif %}
+</p>
+
+<h3>Counts by source</h3>
+<table>
+    <thead><tr><th>Source</th><th>Count</th></tr></thead>
+    <tbody>
+        <tr><td>web_form</td><td>{{ summary.by_source.web_form }}</td></tr>
+        <tr><td>social_mention</td><td>{{ summary.by_source.social_mention }}</td></tr>
+        <tr><td>email_engagement</td><td>{{ summary.by_source.email_engagement }}</td></tr>
+        <tr><th>Total events</th><th>{{ summary.total_events }}</th></tr>
+    </tbody>
+</table>
+
+<h3>Counts by status / decision</h3>
+<table>
+    <thead><tr><th>Dimension</th><th>Key</th><th>Count</th></tr></thead>
+    <tbody>
+        <tr><td>events valid</td><td>valid</td><td>{{ summary.valid_events }}</td></tr>
+        <tr><td>events invalid</td><td>invalid</td><td>{{ summary.invalid_events }}</td></tr>
+        <tr><td>leads total</td><td>—</td><td>{{ summary.total_leads }}</td></tr>
+        {% for k,v in summary.by_decision.items() %}
+        <tr><td>decision</td><td>{{ k }}</td><td>{{ v }}</td></tr>
+        {% endfor %}
+        {% for k,v in summary.by_status.items() %}
+        {% if v>0 %}<tr><td>lead status</td><td>{{ k }}</td><td>{{ v }}</td></tr>{% endif %}
+        {% endfor %}
+    </tbody>
+</table>
+
+<h3>Queues</h3>
+<table>
+    <thead><tr><th>Queue</th><th>Outstanding</th><th>Link</th></tr></thead>
+    <tbody>
+        <tr><td>manual review pending</td><td>{{ summary.pending_reviews }}</td><td><a href="/dashboard/manual-review">view queue</a></td></tr>
+        <tr><td>dead letter unresolved</td><td>{{ summary.dead_letters }}</td><td><a href="/dashboard/dead-letter">view dead letter</a></td></tr>
+    </tbody>
+</table>
+
+<h3>Reconciliation detail</h3>
+<table>
+    <thead><tr><th>Entity</th><th>Dashboard</th><th>Receipts</th><th>Variance</th><th>Status</th></tr></thead>
+    <tbody>
+        {% for row in recon.reconciliation %}
+        <tr><td>{{ row.entity }}</td><td>{{ row.dashboard_count }}</td><td>{{ row.receipt_count }}</td><td>{{ row.variance }}</td><td><span class="badge badge-{{ row.status }}">{{ row.status }}</span></td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+<p class="muted">Window: since={{ recon.window.since or "—" }} until={{ recon.window.until or "—" }}</p>
+{% endblock %}

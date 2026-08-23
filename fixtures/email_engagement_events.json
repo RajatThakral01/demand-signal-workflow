@@ -1,0 +1,121 @@
+[
+  {
+    "source": "email_engagement",
+    "external_event_id": "em-clear-positive-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T14:00:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-email-001",
+    "name": "Bob Builder",
+    "email": "bob.builder@example.com",
+    "engagement_type": "reply",
+    "reply_body": "We love your integration docs, could you share pricing for 100 seats with SAML and SCIM?"
+  },
+  {
+    "source": "email_engagement",
+    "external_event_id": "em-clear-positive-002",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T14:01:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-email-002",
+    "name": "Carol Danvers",
+    "email": "carol.danvers@example.com",
+    "engagement_type": "click",
+    "reply_body": "Clicked pricing link, interested in enterprise onboarding."
+  },
+  {
+    "source": "email_engagement",
+    "external_event_id": "em-duplicate-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T14:02:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-email-duplicate",
+    "name": "Dave Grohl",
+    "email": "dave.grohl@example.com",
+    "engagement_type": "open",
+    "reply_body": "Opened email about feature request for dark mode."
+  },
+  {
+    "source": "email_engagement",
+    "external_event_id": "em-duplicate-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T14:02:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-email-duplicate",
+    "name": "Dave Grohl",
+    "email": "dave.grohl@example.com",
+    "engagement_type": "open",
+    "reply_body": "Opened email about feature request for dark mode."
+  },
+  {
+    "source": "email_engagement",
+    "external_event_id": "em-edited-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T14:03:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-email-edited",
+    "name": "Eve Adams",
+    "email": "eve.adams@example.com",
+    "engagement_type": "reply",
+    "reply_body": "Original reply about competitor mention."
+  },
+  {
+    "source": "email_engagement",
+    "external_event_id": "em-edited-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T14:04:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-email-edited",
+    "name": "Eve Adams",
+    "email": "eve.adams@example.com",
+    "engagement_type": "reply",
+    "reply_body": "Edited reply: actually asking about pricing for competitor comparison and migration support."
+  },
+  {
+    "source": "email_engagement",
+    "external_event_id": "em-invalid-bad-engagement",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T14:05:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-bad",
+    "name": "Bad Engagement",
+    "email": "badeng@example.com",
+    "engagement_type": "forward",
+    "reply_body": "This engagement type is invalid"
+  },
+  {
+    "source": "email_engagement",
+    "external_event_id": "em-ambiguous-no-email",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T14:06:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-ambig",
+    "name": "Ambiguous Email",
+    "engagement_type": "reply",
+    "reply_body": "Hello without email identity"
+  },
+  {
+    "source": "email_engagement",
+    "external_event_id": "em-short-text-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T14:07:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-short",
+    "name": "Short Email",
+    "email": "short.email@example.com",
+    "engagement_type": "reply",
+    "reply_body": "ok"
+  },
+  {
+    "source": "email_engagement",
+    "external_event_id": "em-provider-failure-001",
+    "schema_version": "1.0",
+    "received_at": "2026-08-20T14:08:00+00:00",
+    "consent": true,
+    "campaign_id": "camp-failure-email",
+    "name": "Failure Email",
+    "email": "failure.email@example.com",
+    "engagement_type": "reply",
+    "reply_body": "This email will be dead-lettered for provider failure testing."
+  }
+]

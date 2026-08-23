@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Leads{% endblock %}
+{% block content %}
+<h2>Leads</h2>
+<form method="get" action="/dashboard/leads">
+    <label>Status <input name="status" value="{{ filters.status or '' }}" placeholder="routed"></label>
+    <label>Source <input name="source" value="{{ filters.source or '' }}" placeholder="web_form"></label>
+    <label>Decision <input name="decision" value="{{ filters.decision or '' }}" placeholder="hot"></label>
+    <button type="submit">Filter</button>
+    <a href="/dashboard/leads">Clear</a>
+</form>
+<p class="muted">{{ leads|length }} lead(s) — <a href="/api/v1/leads" target="_blank">JSON</a></p>
+<table>
+    <thead><tr><th>Lead</th><th>Identity</th><th>Status</th><th>Queue</th><th>Rule</th><th>Score</th><th>Decision</th><th>Escalated</th><th>SLA deadline</th></tr></thead>
+    <tbody>
+        {% for l in leads %}
+        <tr>
+            <td><a href="/dashboard/leads/{{ l.lead_id }}">{{ l.lead_id[:8] }}…</a></td>
+            <td class="muted">{{ l.identity_id[:8] }}…</td>
+            <td>{{ l.status }}</td>
+            <td>{{ l.queue or "—" }}</td>
+            <td>{{ l.rule_matched or "—" }}</td>
+            <td>{{ l.score if l.score is not none else "—" }}</td>
+            <td>{{ l.decision or "—" }}</td>
+            <td>{% if l.escalated %}yes{% else %}no{% endif %}</td>
+            <td class="muted">{{ l.sla_deadline or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="muted">No leads</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
