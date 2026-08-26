@@ -926,3 +926,240 @@ triggers the LIVE call, and a migration note for `0011`.
 
 ---
 
+### Session: Fix 1 — Identity confidence_threshold enforcement (app/services/resolve.py)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0022`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2` (no OpenRouter call; all LLM paths mocked)
+- **What was generated / changed:**
+  - `app/services/resolve.py` — `resolve_identity` now loads `confidence_threshold` from `identity_policy_v1.json` via `_load_policy()` ( `Decimal(str(policy["confidence_threshold"]))` ) and compares the computed `fuzzy_similarity` score against it. If `score < threshold`, the event is still queued for manual review but with `candidate_identity_id=None` and `reason="no_confident_fuzzy_candidate"` instead of proposing the low-confidence identity. If `score >= threshold`, behavior unchanged (candidate proposed with `fuzzy_name_company_manual_review:{score}`). `should_auto_link` still unconditionally returns `False` — fuzzy never auto-merges, only the suggested candidate changes.
+  - `tests/integration/test_resolve_identity.py` — updated `test_fuzzy_below_threshold_goes_to_manual_review` to assert `candidate_identity_id is None` and `reason == "no_confident_fuzzy_candidate"` for the `Ada Lovelace` vs `Ada Rutherford` (0.50 < 0.85) case, matching the new contract.
+  - `tests/integration/test_fix1_threshold_proof.py` (new) — 3 tests that fail before the fix and pass after: `0.10 → None` (below), `0.85 → candidate present` (boundary, `>=`), `0.95 → candidate present` (above), each via `monkeypatch.setattr(resolve_svc, "fuzzy_similarity", lambda: Decimal(...))` and asserting `review_queued` row `candidate_identity_id`/`reason`.
+- **Human review / changes:** pending Rajat review.
+- **Verification:** proof file `test_fix1_threshold_proof.py` — before fix `0.10` candidate was `UUID(...), reason "fuzzy_name_company_manual_review:0.10"` (1 failed); after fix `None`/`no_confident_fuzzy_candidate` (3 passed). Full suite after fix **224 passed, 1 skipped** (221 baseline + 3 new, no regressions).
+
+---
+
+### Session: Fix 2 — All validation errors recorded (app/routers/events.py, app/services/ingest.py)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0023`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2` (no OpenRouter call)
+- **What was generated / changed:**
+  - `app/routers/events.py` — `except ValidationError as exc:` now `reason = "; ".join(e["msg"] for e in exc.errors())` instead of `exc.errors()[0]["msg"]`, so every Pydantic error is preserved. Single-error payloads still produce a single message with no trailing separator (identical to before).
+  - `app/services/ingest.py` — `persist_invalid_event` docstring updated to document the choice: `invalid_reason` is a semicolon-joined string of all messages (least-disruptive: no new column, no schema change; full joined string stored in `events.invalid_reason` and `event_rejected` receipt metadata, `raw_payload` retains original body). Alternative considered was storing a JSON list in a new field — rejected as more invasive.
+  - `tests/integration/test_fix2_validation_proof.py` (new) — 2 tests: `missing external_event_id + invalid email` payload asserts `invalid_reason` contains both errors (split by `;` gives `>=2` parts) and DB row matches; `single-error` payload asserts identical to before (single message, no spurious `;`).
+- **Human review / changes:** pending Rajat review.
+- **Verification:** proof before fix: `invalid_reason == "Field required"` (email missing, 1 failed); after fix `invalid_reason == "Field required; value is not a valid email address: ..."` (2 passed). Full suite **226 passed, 1 skipped** (224 + 2).
+
+---
+
+### Session: Fix 3 — Lower interpret_min_tokens 8→2 (app/config.py, README, .env.example, tests)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0024`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2` (no OpenRouter call; LLM mocked where needed)
+- **What was generated / changed:**
+  - `app/config.py` — `interpret_min_tokens: int = Field(default=2, ge=1)` (was `8`). Docstring clarifies gate is for pure noise (`"hi"`/`"test"`), not short-but-real intent; at ~$0.000026/call recall beats saving.
+  - `.env.example` — added `INTERPRET_MIN_TOKENS=` with comment explaining default 2 and cost rationale.
+  - `README.md` — updated all `8`-token references: LIVE/SIMULATED table ("default 2 words — pure noise"), Configuration table (`OPENROUTER_API_KEY` `*` note `<2` / `≥2`), Efficiency savings bullet (`<2` + "want a quote" calls LLM), Troubleshooting (`<2`), Cost explicit statement (`2-token noise-only skip`).
+  - `tests/integration/test_prd_edge_cases.py` — `test_fr4_seven_tokens_still_unknown_and_no_llm` now uses `SHORT_MSG ("hi")` (1 word) to demonstrate a genuine skip under the new threshold; `test_edge_get_events_returns_score_features_and_policy` comment `>=8` → `>=2`. `tests/integration/test_score_event.py` comment updated similarly. `tests/integration/test_ingest_events.py` (`test_valid_event_created`, `test_edit_updates_row_and_marks_is_edit`) and `tests/integration/test_manual_review_api.py` (`test_manual_review_list_pending_and_resolve`, `test_manual_review_resolve_already_resolved_409`) now `monkeypatch.setattr(interpret._call_llm, _fake)` because their 5-word / 3-word messages now correctly call the LLM (previously they relied on the `8`-word skip to avoid mocking).
+  - `tests/integration/test_fix3_threshold_proof.py` (new) — 2 tests: `3-word "want a quote"` and `7-word "i am interested in buying your product"` both assert `spy.assert_called_once()` (not skipped); `1-word "hi"` asserts `spy.assert_not_called()` (still skipped). Mirrors the existing `spy asserts _call_llm never invoked` test but inverted for buying intent.
+- **Human review / changes:** pending Rajat review.
+- **Verification:** before fix, `7-word` payload was skipped (spy not called) and `3-word` was skipped; after fix both call LLM (2 passed) and `1-word` still skipped. Full suite after fix **228 passed, 1 skipped** (226 + 2).
+
+---
+
+### Session: Fix 4 — write_receipt assert → ValueError (app/services/receipts.py)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0025`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2`
+- **What was generated / changed:**
+  - `app/services/receipts.py` — replaced `assert action_type in VALID_ACTION_TYPES` (stripped with `python -O`) with `if action_type not in VALID_ACTION_TYPES: raise ValueError(...)`. Docstring and module header updated from "enforced by assertion" to "enforced by ValueError" and note that `ValueError` survives `-O`.
+  - Grep of `tests/` confirmed no test relied on `pytest.raises(AssertionError)` for receipts — no updates needed.
+  - `tests/integration/test_fix4_receipt_proof.py` (new) — `test_fix4_invalid_action_type_raises_value_error` asserts `ValueError` with `"Unknown action_type"` + `"VALID_ACTION_TYPES"`; `test_fix4_valid_action_type_does_not_raise` sanity. Before fix the first test raised `AssertionError` (1 failed); after fix `ValueError` (2 passed). Verified with `python -O -m pytest tests/integration/test_fix4_receipt_proof.py -v` → both passed (asserts survive `-O`, with pytest warning about missing assert).
+- **Human review / changes:** pending Rajat review.
+- **Verification:** full suite **230 passed, 1 skipped** (228 + 2).
+
+---
+
+### Session: Fix 5 — Identity policy JSON self-contradiction (app/policies/identity_policy_v1.json)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0026`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2`
+- **What was generated / changed:**
+  - `app/policies/identity_policy_v1.json` — `fuzzy_name_company` `"requires": ["name", "company"]` → `"requires": ["name"], "optional": ["company"]` so the file matches the code. `_comment` and `fuzzy_similarity` already treat company as optional (name-only is a reviewer suggestion; ratio averaged only when both companies known). Grep of `app/services/resolve.py` confirms no code reads the `requires` field programmatically — purely descriptive, so no code changes needed.
+  - `tests/integration/test_fix5_policy_proof.py` (new) — asserts `policy["rules"]["fuzzy_name_company"]["requires"] == ["name"]` and `"company" in optional`, plus that `resolve.py` source does not contain `"requires"` (confirming purely descriptive).
+- **Human review / changes:** pending Rajat review.
+- **Verification:** before fix `requires == ["name","company"]` (1 failed); after fix `["name"]` + `optional ["company"]` (1 passed). Full suite **231 passed, 1 skipped**.
+
+---
+
+### Session: Fix 6 — README DATABASE_URL default correction (README.md)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0027`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2`
+- **What was generated / changed:**
+  - `README.md` Configuration/Env Vars table row for `DATABASE_URL` — was `postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw` (compose) implying a code-level default. Now `""` in code (empty string); effective `postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw` via `docker-compose.yml` `${DATABASE_URL:-...}` when running `docker compose up`. Accurately reflects `app/config.py` `database_url: str = ""` and `docker-compose.yml` environment block.
+  - `tests/integration/test_fix6_readme_proof.py` (new) — reads `README.md` and asserts row contains `""`/`empty` and `docker-compose.yml`, plus that `Settings.model_fields["database_url"].default == ""`. Before fix row lacked `empty`/`""` (1 failed); after fix (1 passed).
+- **Human review / changes:** pending Rajat review.
+- **Verification:** full suite **232 passed, 1 skipped**.
+
+---
+
+### Session: Fix 7 — ai-usage.json top-level provider/model disclosure (ai-usage.json)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0028`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2`
+- **What was generated / changed:**
+  - **Confirmation:** Asked Rajat via `question` tool what "Muse Spark" / "muse-spark-1.2" refers to. Rajat answered "Defer to per-session" (keep top-level as-is, direct readers to per-session breakdown). No guessing.
+  - `ai-usage.json` top-level `notes` — was `[]`. Now contains: "Top-level provider/model (OpenRouter / ~deepseek/deepseek-v4-flash-latest) describe only the initial tool. Sessions S0018–S0020 used Muse Spark muse-spark-1.2 via the Opencode harness (confirmed with Rajat 2026-08-26 to keep top-level as-is and defer to per-session breakdown per Fix 7). Per-session provider/model are authoritative; top-level is retained unchanged to avoid schema disruption." This is the least-disruptive additive fix (no change to `provider`/`model` top-level fields, no existing session altered).
+  - `tests/integration/test_fix7_ai_usage_proof.py` (new) — asserts top-level `notes` mentions `Muse Spark` and `per-session`, and that sessions contain both `OpenRouter` and `Muse Spark` providers and `muse-spark` models, plus `len(sessions) >=20`.
+- **Human review / changes:** Rajat confirmed via question tool; no removal/alteration of existing sessions.
+- **Verification:** before fix `notes == []` (1 failed); after fix note present (2 passed). Full suite **234 passed, 1 skipped** (232 + 2).
+
+---
+
+### Session: Fix 8 — Redundant fallback in _extract_text (app/services/interpret.py)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0029`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2`
+- **What was generated / changed:**
+  - `app/services/interpret.py` — removed the dead generic fallback:
+    ```python
+    if not body:
+        body = (event.raw_payload or {}).get("message") or (event.raw_payload or {}).get("body")
+    ```
+    This duplicated the `web_form` branch (`message`/`body`) and for `social_mention` only added `message` where schema expects `text`, and for `email_engagement` only added `message`/`body` where schema expects `reply_body` — never a genuinely different path in practice. **Choice:** remove rather than replace, because a genuinely different fallback (e.g., checking `text` for `web_form`) would be speculative and no real gap was observed; the per-source branches already cover the schema's body fields. No-behavior-change cleanup, confirmed by unchanged `test_interpret.py` suite.
+  - `tests/integration/test_fix8_extract_proof.py` (new) — asserts source no longer contains `'generic fallback over a few known keys'` and that per-source `if/elif` branches and `return (body or "").strip()` still exist. Before fix comment present (1 failed); after fix gone (1 passed).
+- **Human review / changes:** pending Rajat review.
+- **Verification:** `pytest tests/integration/test_interpret.py -v` → `4 passed, 1 skipped` unchanged. Full suite **235 passed, 1 skipped**.
+
+---
+
+### Session: Fix 9 — Unreachable check in admin replay handler (app/routers/admin.py)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0030`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2`
+- **What was generated / changed:**
+  - `app/routers/admin.py` — removed:
+    ```python
+    if outcome["interpretation"] is None:
+        raise HTTPException(status_code=409, detail={"error": "replay_failed"})
+    ```
+    **Code trace (verified independently, not just from prompt):** `replay_event` calls `run_downstream` → `classify_event`. `classify_event` always either writes an `interpretations` row (skipped `unknown` or LLM success, both `await db.commit()`) and returns `{"status": "interpreted", "interpretation_id": ...}` or raises `InterpretError` (bounded retry exhausted, writes `dead_letter_queue` + `dead_lettered` receipt). `run_downstream` then `SELECT Interpretation WHERE event_id == event.id` and would only be `None` if the write were missing — which never happens on success. No path returns normally with `None`; the check was unreachable and no test ever exercised it. Comment added explaining the trace.
+  - `tests/integration/test_fix9_unreachable_proof.py` (new) — asserts source no longer contains `outcome["interpretation"] is None` check, and that `run_downstream`/`InterpretError` still present.
+- **Human review / changes:** pending Rajat review.
+- **Verification:** before fix check present (1 failed); after fix gone (1 passed). Full suite **236 passed, 1 skipped**.
+
+---
+
+### Session: Fix 10 — simulate-failure duplicate guard (app/routers/admin.py)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0031`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2`
+- **What was generated / changed:**
+  - `app/routers/admin.py` — `POST /api/v1/admin/simulate-failure` now checks for an existing unresolved `DeadLetterQueue` row for `event_id` before inserting. If one exists, returns `409 {"error": "already_dead_lettered"}` (matching existing `409` pattern `not_dead_lettered`/`ambiguous_identity` in the same file), otherwise inserts as before. Query `SELECT DeadLetterQueue WHERE event_id == event_uuid AND resolved IS False` — after a replay `resolved=true`, a new simulate-failure is allowed.
+  - `tests/integration/test_fix10_deadletter_proof.py` (new) — 2 tests: `simulate twice → 200 then 409` with `count unresolved ==1` / `total ==1`; `after replay resolved, simulate again → 200`. Before fix second call returned `200` and created `2` rows (1 failed); after fix `409`/`already_dead_lettered` (2 passed).
+- **Human review / changes:** pending Rajat review.
+- **Verification:** full suite **238 passed, 1 skipped** (236 + 2, baseline 221).
+
+---
+
+### Session: 10-Fix Audit Sweep — Summary (Fix 1–10, Phase-8-audit style)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0032`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2` (10 fixes, all tests mocked where LLM needed; no new paid OpenRouter call)
+- **What was generated / changed (all 10, one at a time, suite green before each next):**
+  - **Fix 1** `resolve.py` — enforce `confidence_threshold` (0.85) → below → `candidate None`/`no_confident_fuzzy_candidate`; update existing `test_resolve_identity` below-threshold test; new `test_fix1_threshold_proof.py` (3).
+  - **Fix 2** `events.py`/`ingest.py` — join all `exc.errors()` msgs (`"; ".join`) not just `[0]`; document in `persist_invalid_event` docstring; new `test_fix2_validation_proof.py` (2).
+  - **Fix 3** `config.py` `interpret_min_tokens` `8→2`, `.env.example` `INTERPRET_MIN_TOKENS` comment, `README.md` 4 places (`8→2` + cost rationale), update `test_prd_edge_cases` 7-token skip → 1-word `hi`, add mocks to `test_ingest_events`/`test_manual_review_api` that now hit LLM; new `test_fix3_threshold_proof.py` (2) buying-intent not skipped vs noise still skipped.
+  - **Fix 4** `receipts.py` — `assert` → `if raise ValueError` (survives `-O`), grep confirmed no `AssertionError` test; new `test_fix4_receipt_proof.py` (2) including `python -O`.
+  - **Fix 5** `identity_policy_v1.json` — `requires ["name","company"]` → `requires ["name"], optional ["company"]` (code never reads `requires`); new `test_fix5_policy_proof.py` (1).
+  - **Fix 6** `README.md` — `DATABASE_URL` row now `""` in code; effective via `docker-compose.yml ${DATABASE_URL:-...}`; new `test_fix6_readme_proof.py` (1).
+  - **Fix 7** `ai-usage.json` top-level `notes` — add note that S0018–S0020 used `Muse Spark muse-spark-1.2` (confirmed with Rajat via `question` tool "Defer to per-session", least-disruptive additive fix, no session removed); new `test_fix7_ai_usage_proof.py` (2).
+  - **Fix 8** `interpret.py` — remove redundant `if not body: body = get(message)/get(body)` fallback (dead code, duplicates `web_form` branch); new `test_fix8_extract_proof.py` (1); `test_interpret.py` still `4 passed 1 skipped` (no-behavior-change).
+  - **Fix 9** `admin.py` — remove unreachable `if outcome["interpretation"] is None: raise 409` (verified via `classify_event` → `run_downstream` trace: always row or `InterpretError`); new `test_fix9_unreachable_proof.py` (1).
+  - **Fix 10** `admin.py` — `simulate-failure` guard: `SELECT ... WHERE resolved=False` before insert → `409 already_dead_lettered` matching existing `not_dead_lettered` pattern; new `test_fix10_deadletter_proof.py` (2).
+  - No Alembic migration needed (all 10 are logic/doc fixes, no schema change — per instructions "if a fix requires a migration, add one; do not hand-edit models.py without a matching migration" — none required).
+  - No unrelated refactors.
+- **Human review / changes:** Rajat confirmed Fix 7 via `question` tool; other fixes pending review. Each fix was applied in order, with a failing-before / passing-after proof test and a full `pytest -q` green before proceeding (counts below).
+- **Verification (final, after all 10):**
+  - `DATABASE_URL=postgresql+asyncpg://rajatthakral@/dsw_test?host=/tmp pytest -q` → **238 passed, 1 skipped in ~30s** (baseline 221 → +17 new proof tests, `>=221` satisfied). Live test still gated (`RUN_LIVE_INTERPRET_TEST=1`). `python -m compileall` clean, `ruff` clean (no F401). Per-fix counts: Fix1 224, Fix2 226, Fix3 228, Fix4 230, Fix5 231, Fix6 232, Fix7 234, Fix8 235, Fix9 236, Fix10 238 — each `pytest -q` green before next.
+  - No new paid OpenRouter cost (all LLM paths mocked via `interpret._call_llm` `AsyncMock`).
+  - `alembic upgrade head` not needed (no migration), `docker compose config` still OK.
+
+---
+
+
+### Session: Follow-ups A+B — Session-ID alignment + dead-letter DB constraint (Fix 10 hardening)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0033`
+- **Date:** 2026-08-26
+- **Provider / model:** Muse Spark, `muse-spark-1.2` (no OpenRouter call; concurrency test mocked)
+- **What was generated / changed (both follow-ups, in order, suite green before each next):**
+  - **Follow-up A — Align ai-usage.json to AI_USAGE.md:** `AI_USAGE.md` had merged `S0018+S0019` into one markdown entry (historical), while `ai-usage.json` kept them as two separate JSON entries — the one-ID offset cascaded into the 10 fix IDs (`S0021` vs `S0022` for Fix1 … `S0031` vs `S0032` for summary). Bumped all 11 new JSON entries up by one (`S0021→S0022` Fix1 … `S0031→S0032` summary) to match `AI_USAGE.md` exactly. Left `S0021` explicitly unused/skipped in `ai-usage.json` (do not reuse) and added a one-line top-level `notes` entry explaining the gap: "S0021 is intentionally skipped … Fix1=S0022 … summary=S0032 in both files after the 2026-08-26 follow-up". Did **not** renumber or touch any session before `S0021` in either file. Verified via `grep -n "session_id" ai-usage.json` / `grep -n "Session ID" AI_USAGE.md` — no duplicates in either file, `S0021` missing in JSON (gap) and present in MD (Phase10), and all 10 fixes + summary now agree (`S0022` Fix1 … `S0032` summary in both).
+  - **Follow-up B — Close simulate-failure race with DB constraint:** Added `app/db/migrations/versions/0013_dead_letter_unresolved_unique.py` (`revision 0013_dead_letter_unresolved_unique`, `down_revision 0012_phase8_integrity_hardening`) — partial unique index `uq_dead_letter_queue_event_id_unresolved` on `dead_letter_queue(event_id)` `WHERE resolved = false`, mirroring `0003`'s `uq_identities_primary_email` (`postgresql_where=sa.text("resolved = false")`). Deduplicates legacy duplicate unresolved rows (keep oldest per `event_id`, `DELETE ... WHERE duplicate.id > kept.id`). Added matching `Index(...)` to `DeadLetterQueue.__table_args__` in `app/db/models.py:374` (same pattern as `Event`/`Identity`). Updated `app/routers/admin.py:152` `simulate_failure` to keep the fast `SELECT` guard for the friendly `409`, but also wrap the `INSERT` (`db.add`/`flush`/`write_receipt`/`commit`) in `try/except IntegrityError` → `rollback` → `409 {"error":"already_dead_lettered"}` (same pattern as `resolve.py:_link_via_exact` and `act.py:create_or_update_lead`; no need to re-read winner row since response is just `409`). Also hardened `app/services/interpret.py:312` dead-letter path (replay re-dead-letter) to catch `IntegrityError` on the same index (sequential replay after simulate would otherwise create a second unresolved row → `500`), log `interpret_dead_lettered_duplicate_suppressed` and still raise `InterpretError` → `503` (row count stays `1`, duplicate suppressed). Updated `tests/integration/test_admin.py:279` `test_replay_redeadletters_when_provider_still_down` to expect `1` DLQ row/receipt (duplicate suppressed) instead of `2` (pre-constraint). Added concurrency test `tests/integration/test_fix10_deadletter_proof.py:46` `test_fix10_concurrent_simulate_failure_creates_one_row` — `asyncio.gather` of two `POST /admin/simulate-failure` for same `event_id`, asserts `sorted(statuses)==[200,409]` (not `200+200`) and exactly `1` unresolved row.
+- **Human review / changes:** Follow-up A confirmed via `grep` no duplicates and Fix IDs aligned (`S0022` Fix1 … `S0031` Fix10, `S0032` summary in both files); Follow-up B pending review. No unrelated refactors.
+- **Verification (final, after both follow-ups):**
+  - Before follow-ups: `pytest -q` → `238 passed, 1 skipped`.
+  - After A (ID bump): `pytest -q` → `238 passed, 1 skipped` (no code change, still green; `grep` confirms `S0021` gap in JSON, `S0022–S0032` aligned).
+  - After B (migration + Index + IntegrityError handling + concurrency test + updated `test_admin`): `pytest -q` → `239 passed, 1 skipped` (`238 + 1` new concurrency test, `live` still gated). `python -m compileall` clean. `grep` both files for `S0001–S0033` shows no duplicates and agreement on `S0022–S0033`. `alembic` migration `0013` syntactically valid and `Base.metadata.create_all` creates `uq_dead_letter_queue_event_id_unresolved` (partial) via model.
+  - No new paid OpenRouter cost.
+
+---
+
+### Session: Defect — Alembic revision varchar(32) overflow in 0013 (live verification, not caught by test suite)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0034`
+- **Date:** 2026-08-27
+- **Provider / model:** Muse Spark, `muse-spark-1.2` (no OpenRouter call)
+- **Classification:** Defect found during genuine live `docker compose up` (fresh volume), not caught by the test suite — logged separately per the S0013/S0014 framing pattern, not folded into the 10-fix sweep.
+- **What the bug was:** `app/db/migrations/versions/0013_dead_letter_unresolved_unique.py` had `revision = "0013_dead_letter_unresolved_unique"` — 34 characters. Alembic's own `alembic_version` table stores the current revision in `varchar(32)` (Alembic default, not this project's `models.py`). On a truly clean database (`alembic_version` empty, as on `docker compose down -v` + `docker compose up -d`), the final `UPDATE alembic_version SET version_num = '0013_dead_letter_unresolved_unique'` fails with `asyncpg.exceptions.StringDataRightTruncationError: value too long for type character varying(32)` and crashes the migration — the app never reaches `uvicorn`. This is a hard crash on every fresh deploy.
+- **Why the test suite never caught it:** Every test in this project (239 tests) builds its isolated schema via `Base.metadata.create_all` in `tests/conftest.py:42-47` (`await conn.run_sync(Base.metadata.drop_all/create_all)`), which creates tables directly from SQLAlchemy models and never touches Alembic's `alembic_version` table at all. No test ever actually exercises `alembic upgrade head` against a clean `alembic_version` with its `varchar(32)` constraint, so the overflow was invisible to `pytest -q` (239 passed) and only surfaced on a real `docker compose up` with an empty database.
+- **Fix:**
+  - Renamed revision in `0013` to `0013_dlq_unresolved_unique` (26 chars, `len=26 <=32`, still clearly tied to migration 0013 and descriptive; was 34). Updated both the `revision` assignment and the docstring header `Revision ID: 0013_dlq_unresolved_unique`. Renamed file `0013_dead_letter_unresolved_unique.py` → `0013_dlq_unresolved_unique.py` for consistency.
+  - Verified no other migration references the old string as `down_revision`: `grep -r "0013_dead_letter" app/db/migrations --include="*.py"` → no references (good), since 0013 is the head.
+  - Audited *every* existing migration's `revision` and `down_revision` length (report below) — none of the other 12 exceed 32; the next-longest is `0012_phase8_integrity_hardening` at 31. Full report:
+    ```
+    0001_events.py                           revision='0001_events' len=11 ✓  down='None' ✓  OK
+    0002_identity_tables.py                  revision='0002_identity_tables' len=20 ✓  down='0001_events' len=11 ✓  OK
+    0003_identity_uniqueness.py              revision='0003_identity_uniqueness' len=24 ✓  down='0002_identity_tables' len=20 ✓  OK
+    0004_interpretations.py                  revision='0004_interpretations' len=20 ✓  down='0003_identity_uniqueness' len=24 ✓  OK
+    0005_scores.py                           revision='0005_scores' len=11 ✓  down='0004_interpretations' len=20 ✓  OK
+    0006_leads_routes.py                     revision='0006_leads_routes' len=17 ✓  down='0005_scores' len=11 ✓  OK
+    0007_attribution_touches.py              revision='0007_attribution_touches' len=24 ✓  down='0006_leads_routes' len=17 ✓  OK
+    0008_receipts.py                         revision='0008_receipts' len=13 ✓  down='0007_attribution_touches' len=24 ✓  OK
+    0009_routes_lead_id_unique.py            revision='0009_routes_lead_id_unique' len=26 ✓  down='0008_receipts' len=13 ✓  OK
+    0010_dead_letter_queue.py                revision='0010_dead_letter_queue' len=22 ✓  down='0009_routes_lead_id_unique' len=26 ✓  OK
+    0011_events_dedupe_key_valid_only.py     revision='0011_events_dedupe_valid' len=24 ✓  down='0010_dead_letter_queue' len=22 ✓  OK
+    0012_phase8_integrity_hardening.py       revision='0012_phase8_integrity_hardening' len=31 ✓  down='0011_events_dedupe_valid' len=24 ✓  OK
+    0013_dlq_unresolved_unique.py            revision='0013_dlq_unresolved_unique' len=26 ✓  down='0012_phase8_integrity_hardening' len=31 ✓  OK
+    ```
+  - Added `python-multipart==0.0.9` to `requirements.txt:22` — discovered during live verification that the Docker image was missing this FastAPI `Form` dependency (`app/routers/pages.py:12` `from fastapi import Form`), so even after the migration was fixed `uvicorn` crashed with `RuntimeError: Form data requires "python-multipart"`. Host test suite had it installed (`python-multipart 0.0.26` in host `pip list`) so `pytest -q` never caught it either. Pinning it in `requirements.txt` makes `docker compose build` include it.
+- **Verification (truly clean, not just `pytest`):**
+  - `docker compose down -v && docker compose build && docker compose up -d` (fresh `pgdata` volume, empty `alembic_version`).
+  - Real `docker compose logs app` (paste, not "it works"):
+    ```
+    app-1  | [entrypoint] applying database migrations (alembic upgrade head)
+    app-1  | INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+    app-1  | INFO  [alembic.runtime.migration] Will assume transactional DDL.
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade  -> 0001_events, create events table
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0001_events -> 0002_identity_tables, create identities, identity_links, manual_review_queue tables
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0002_identity_tables -> 0003_identity_uniqueness, create partial unique indexes on identities.primary_email and primary_phone
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0003_identity_uniqueness -> 0004_interpretations, create interpretations table
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0004_interpretations -> 0005_scores, create scores table
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0005_scores -> 0006_leads_routes, create leads and routes tables
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0006_leads_routes -> 0007_attribution_touches, create attribution_touches table
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0007_attribution_touches -> 0008_receipts, create receipts table
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0008_receipts -> 0009_routes_lead_id_unique, make routes.lead_id unique
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0009_routes_lead_id_unique -> 0010_dead_letter_queue, create dead_letter_queue table
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0010_dead_letter_queue -> 0011_events_dedupe_valid, scope the events.dedupe_key uniqueness to valid rows only
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0011_events_dedupe_valid -> 0012_phase8_integrity_hardening, harden identity/review/score idempotency invariants
+    app-1  | INFO  [alembic.runtime.migration] Running upgrade 0012_phase8_integrity_hardening -> 0013_dlq_unresolved_unique, enforce one unresolved dead-letter per event (Fix 10 race)
+    app-1  | [entrypoint] starting uvicorn
+    app-1  | INFO:     Started server process [1]
+    app-1  | INFO:     Waiting for application startup.
+    app-1  | INFO:     Application startup complete.
+    app-1  | INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+    ```
+  - `curl -s http://localhost:8000/health` → `{"status": "ok", "db": "ok"}` `200` (verified via `curl -s -w "%{http_code}"`).
+  - `pytest -q` still `241 passed, 1 skipped` (239 + 2 new regression tests), `python -m compileall` clean.
+- **Regression check:** Added `tests/unit/test_migration_revision_length.py` — asserts every `app/db/migrations/versions/*.py` has `revision` and `down_revision` (when not `None`) `len <=32`, and that `0013_dlq_unresolved_unique` is exactly `26` and starts with `0013_`. Fails against the buggy `34`-char string, passes after rename. This would have caught the bug before it reached `docker compose up`.
+
+---

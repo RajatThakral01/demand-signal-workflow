@@ -72,7 +72,7 @@ async def test_score_recorded_on_happy_path(client, db_session, monkeypatch):
 
 
 async def test_unknown_label_event_produces_needs_review(client, db_session):
-    # Short message (<8 tokens) -> LLM skipped -> label "unknown" -> needs_review.
+    # Short message (<2 tokens) -> LLM skipped -> label "unknown" -> needs_review.
     resp = await client.post("/api/v1/events", json=_web_form(message="Hi"))
     assert resp.status_code == 200
     body = resp.json()

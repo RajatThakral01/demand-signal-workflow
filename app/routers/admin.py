@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -110,8 +111,12 @@ async def replay_event(
             status_code=503, detail={"error": "replay_failed",
                                      "detail": "interpret still failing; event re-dead-lettered"})
 
-    if outcome["interpretation"] is None:
-        raise HTTPException(status_code=409, detail={"error": "replay_failed"})
+    # Removed dead check that tested outcome interpretation for None — was unreachable.
+    # Code trace: `classify_event` (called via `run_downstream`) always either
+    # returns successfully with an `interpretations` row (skipped or LLM) or
+    # raises `InterpretError` (dead-letter path). No path returns normally with
+    # a None interpretation, so the check could never fire and no test ever
+    # exercised it.
 
     act_result = outcome["act_result"] or {}
 
@@ -168,6 +173,21 @@ async def simulate_failure(
     if event is None:
         raise HTTPException(status_code=404, detail={"error": "not_found"})
 
+    # Guard against duplicate unresolved dead-letter rows (same pattern as
+    # replay's 409 not_dead_lettered). Two simulate-failure calls on the same
+    # event otherwise create two unresolved DLQ rows, breaking the 1:1 DLQ↔
+    # dead_lettered receipt invariant and the dead-letter worklist.
+    existing = (
+        await db.execute(
+            select(DeadLetterQueue).where(
+                DeadLetterQueue.event_id == event_uuid,
+                DeadLetterQueue.resolved.is_(False),
+            )
+        )
+    ).scalars().first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail={"error": "already_dead_lettered"})
+
     dlq = DeadLetterQueue(
         event_id=event.id,
         stage="interpret",
@@ -175,18 +195,26 @@ async def simulate_failure(
         retry_count=settings.retry_max_attempts,
     )
     db.add(dlq)
-    await db.flush()  # populate dlq.id before the receipt references it
-    await write_receipt(
-        db,
-        action_type="dead_lettered",
-        entity_id=dlq.id,
-        entity_type="dead_letter",
-        event_id=event.id,
-        metadata={"stage": "interpret", "retry_count": settings.retry_max_attempts,
-                  "simulated": True},
-        status="error",
-    )
-    await db.commit()  # DLQ row + dead_lettered receipt atomic
+    try:
+        await db.flush()  # populate dlq.id before the receipt references it
+        await write_receipt(
+            db,
+            action_type="dead_lettered",
+            entity_id=dlq.id,
+            entity_type="dead_letter",
+            event_id=event.id,
+            metadata={"stage": "interpret", "retry_count": settings.retry_max_attempts,
+                      "simulated": True},
+            status="error",
+        )
+        await db.commit()  # DLQ row + dead_lettered receipt atomic
+    except IntegrityError:
+        # Lost a race: another concurrent simulate-failure INSERT won the
+        # partial unique index (uq_dead_letter_queue_event_id_unresolved).
+        # Same pattern as _link_via_exact / create_or_update_lead: catch,
+        # rollback, and convert to the same friendly 409.
+        await db.rollback()
+        raise HTTPException(status_code=409, detail={"error": "already_dead_lettered"})
 
     return {
         "status": "dead_lettered",

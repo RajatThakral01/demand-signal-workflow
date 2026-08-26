@@ -442,12 +442,14 @@ async def test_fr4_short_text_is_unknown_without_llm_call(client, monkeypatch):
 
 
 async def test_fr4_seven_tokens_still_unknown_and_no_llm(client, monkeypatch):
+    # Updated for interpret_min_tokens=2: true noise like "hi" (1 word) is still
+    # skipped without LLM; 7 words now correctly calls the LLM (tested separately).
     spy = AsyncMock(return_value={
         "label": "pricing_inquiry", "confidence": 0.9, "reason": "x",
         "_model": "deepseek/deepseek-v4-flash", "_usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
     })
     monkeypatch.setattr(interpret, "_call_llm", spy)
-    payload = _wf(message=SEVEN_TOKENS)
+    payload = _wf(message=SHORT_MSG)  # "hi" — 1 token <2, still skipped
     resp = await client.post("/api/v1/events", json=payload)
     fetched = await client.get(f"/api/v1/events/{resp.json()['event_id']}")
     assert fetched.json()["decision"] == "needs_review"
@@ -842,7 +844,7 @@ async def test_edge_concurrent_manual_review_resolve_only_one_wins(client, db_se
 
 async def test_edge_get_events_returns_score_features_and_policy(client, monkeypatch):
     monkeypatch.setattr(interpret, "_call_llm", _fake_llm(label="product_question", confidence=0.91))
-    # Must be >=8 tokens or it will be classified as unknown -> score None
+    # Must be >=2 tokens or it will be classified as unknown -> score None
     long_msg = "product question about pricing integration for enterprise SSO with SAML support and detailed onboarding"
     resp = await client.post("/api/v1/events", json=_wf(message=long_msg))
     fetched = await client.get(f"/api/v1/events/{resp.json()['event_id']}")

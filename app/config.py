@@ -38,8 +38,11 @@ class Settings(BaseSettings):
     # (cheaper than the PRD example string; see AI_USAGE.md for the deviation).
     classification_model: str = "deepseek/deepseek-v4-flash"
     # Minimum free-text length (in tokens) before the LLM is worth calling (FR-4).
-    # Shorter text classifies as `unknown` WITHOUT calling the LLM (cost-saving).
-    interpret_min_tokens: int = Field(default=8, ge=1)
+    # Shorter text classifies as `unknown` WITHOUT calling the LLM. The gate is
+    # intentionally narrow (pure noise like "hi"/"test", not short but real intent):
+    # at ~$0.000026/call the saving from dropping "want a quote" is not worth the
+    # recall loss.
+    interpret_min_tokens: int = Field(default=2, ge=1)
 
     # --- Runtime ----------------------------------------------------------------
     app_env: str = Field(default="local")

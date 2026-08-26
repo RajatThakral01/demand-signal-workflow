@@ -109,8 +109,8 @@ async def test_fuzzy_high_confidence_candidate_still_goes_to_manual_review(db_se
 async def test_fuzzy_below_threshold_goes_to_manual_review(db_session):
 
     # Seed "Ada Lovelace", then send a name sharing one token ("Ada") but
-    # otherwise different -> similar but below threshold -> manual review, never
-    # force-merged.
+    # otherwise different -> similarity 0.50 < 0.85 -> manual review, but with
+    # NO confident candidate (Fix 1).
     e1 = await _insert_event(db_session, uuid.uuid4(), {"name": "Ada Lovelace"})
     r1 = await resolve_svc.resolve_identity(db_session, e1)
     assert r1["status"] == "linked"
@@ -118,12 +118,14 @@ async def test_fuzzy_below_threshold_goes_to_manual_review(db_session):
     e2 = await _insert_event(db_session, uuid.uuid4(), {"name": "Ada Rutherford"})
     r2 = await resolve_svc.resolve_identity(db_session, e2)
     assert r2["status"] == "queued_review"
+    assert r2["candidate_identity_id"] is None
     entry = (
         await db_session.execute(select(ManualReviewQueue).where(
             ManualReviewQueue.event_id == e2.id))
     ).scalars().first()
     assert entry.status == "pending"
-    assert "fuzzy_name_company_manual_review" in entry.reason
+    assert entry.candidate_identity_id is None
+    assert entry.reason == "no_confident_fuzzy_candidate"
 
 
 # --- No identity fields parks in review ---------------------------------------

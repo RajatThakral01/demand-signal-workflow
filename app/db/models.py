@@ -379,9 +379,24 @@ class DeadLetterQueue(Base):
     (truncated, no raw secrets); `retry_count` records the actual attempts made;
     `resolved` flips true when a dead-letter is replayed/resolved (Phase 8c admin
     endpoint). Rows are written atomically with a `dead_lettered` receipt.
+
+    ``event_id`` carries a partial UNIQUE index ``WHERE resolved = false`` so
+    two concurrent ``simulate-failure`` calls for the same event cannot both
+    create an unresolved row — the database, not just application logic, is the
+    race guard (Fix 10 follow-up, mirroring ``identities`` ``uq_identities_…``
+    and ``routes`` ``uq_routes_lead_id``).
     """
 
     __tablename__ = "dead_letter_queue"
+
+    __table_args__ = (
+        Index(
+            "uq_dead_letter_queue_event_id_unresolved",
+            "event_id",
+            unique=True,
+            postgresql_where=text("resolved = false"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

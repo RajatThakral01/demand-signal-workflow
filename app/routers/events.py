@@ -117,7 +117,9 @@ async def create_event(
     try:
         model = event_adapter.validate_python(payload)
     except ValidationError as exc:
-        reason = exc.errors()[0]["msg"]
+        # Join ALL validation messages so no failure is silently discarded.
+        # Single-error payloads look identical to before (no trailing separator).
+        reason = "; ".join(e["msg"] for e in exc.errors())
         event = await ingest.persist_invalid_event(db, payload, reason)
         return EventIngestResponse(
             event_id=str(event.id),

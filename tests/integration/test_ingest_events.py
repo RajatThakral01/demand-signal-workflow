@@ -74,7 +74,11 @@ async def test_schema_invalid_identity_fields_persisted_isolated(client, db_sess
 
 
 # --- Flow 1 step 1-2: valid event created -------------------------------------
-async def test_valid_event_created(client, db_session):
+async def test_valid_event_created(client, db_session, monkeypatch):
+    from app.services import interpret as interp_svc
+    async def _fake(*a, **kw):
+        return {"label": "pricing_inquiry", "confidence": 0.9, "reason": "mocked", "_model": "deepseek/deepseek-v4-flash", "_usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
+    monkeypatch.setattr(interp_svc, "_call_llm", _fake)
     resp = await client.post("/api/v1/events", json=_web_form())
     assert resp.status_code == 200
     body = resp.json()
@@ -100,7 +104,11 @@ async def test_exact_duplicate_is_noop(client, db_session):
 
 
 # --- Flow 2: edited resubmission updates the row, no second row ----------------
-async def test_edit_updates_row_and_marks_is_edit(client, db_session):
+async def test_edit_updates_row_and_marks_is_edit(client, db_session, monkeypatch):
+    from app.services import interpret as interp_svc
+    async def _fake(*a, **kw):
+        return {"label": "pricing_inquiry", "confidence": 0.9, "reason": "mocked", "_model": "deepseek/deepseek-v4-flash", "_usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
+    monkeypatch.setattr(interp_svc, "_call_llm", _fake)
     original = _web_form(message="original message")
     await client.post("/api/v1/events", json=original)
 

@@ -301,14 +301,17 @@ async def test_replay_redeadletters_when_provider_still_down(client, db_session,
     assert replay.status_code == 503
     assert replay.json()["detail"]["error"] == "replay_failed"
 
-    # classify_event's exhaustion path wrote a NEW DLQ row (the original simulate
-    # row was still unresolved) + a dead_lettered receipt.
+    # With the partial unique index uq_dead_letter_queue_event_id_unresolved
+    # (Fix 10 follow-up, migration 0013), a second unresolved DLQ row for the
+    # same event is suppressed — the original simulate row already represents
+    # the dead-letter state. The replay failure is still surfaced as 503, but
+    # no second unresolved row/receipt is created (would violate 1:1 invariant).
     dlq_rows = (
         await db_session.execute(select(DeadLetterQueue).where(
             DeadLetterQueue.event_id == uuid.UUID(event_id)
         ))
     ).scalars().all()
-    assert len(dlq_rows) == 2, f"expected 2 DLQ rows (simulate + re-dead-letter), got {len(dlq_rows)}"
+    assert len(dlq_rows) == 1, f"expected 1 DLQ row (duplicate suppressed by partial unique index), got {len(dlq_rows)}"
     assert all(r.resolved is False for r in dlq_rows)
     dl_lettered = (
         await db_session.execute(select(Receipt).where(
@@ -316,4 +319,4 @@ async def test_replay_redeadletters_when_provider_still_down(client, db_session,
             Receipt.event_id == uuid.UUID(event_id),
         ))
     ).scalars().all()
-    assert len(dl_lettered) == 2, f"expected 2 dead_lettered receipts, got {len(dl_lettered)}"
+    assert len(dl_lettered) == 1, f"expected 1 dead_lettered receipt (duplicate suppressed), got {len(dl_lettered)}"

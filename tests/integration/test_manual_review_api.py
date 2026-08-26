@@ -36,7 +36,11 @@ async def test_events_resolution_parks_ambiguous_in_manual_review(client):
     assert body["review_id"]
 
 
-async def test_manual_review_list_pending_and_resolve(client):
+async def test_manual_review_list_pending_and_resolve(client, monkeypatch):
+    from app.services import interpret as interp_svc
+    async def _fake(*a, **kw):
+        return {"label": "pricing_inquiry", "confidence": 0.9, "reason": "mocked", "_model": "deepseek/deepseek-v4-flash", "_usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
+    monkeypatch.setattr(interp_svc, "_call_llm", _fake)
     await client.post("/api/v1/events", json=_event(external_event_id="seed-1",
                                                     display_name="Ada Lovelace"))
     parked = await client.post("/api/v1/events", json=_event(external_event_id="seed-2",
@@ -79,7 +83,11 @@ async def test_manual_review_resolve_merge_into(client):
     assert missing.status_code == 404
 
 
-async def test_manual_review_resolve_already_resolved_409(client):
+async def test_manual_review_resolve_already_resolved_409(client, monkeypatch):
+    from app.services import interpret as interp_svc
+    async def _fake(*a, **kw):
+        return {"label": "pricing_inquiry", "confidence": 0.9, "reason": "mocked", "_model": "deepseek/deepseek-v4-flash", "_usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
+    monkeypatch.setattr(interp_svc, "_call_llm", _fake)
     await client.post("/api/v1/events", json=_event(external_event_id="seed-1",
                                                     display_name="Ada Lovelace"))
     parked = await client.post("/api/v1/events", json=_event(external_event_id="seed-2",

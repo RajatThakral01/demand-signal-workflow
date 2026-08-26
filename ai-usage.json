@@ -7,7 +7,10 @@
   "version": null,
   "skills_tools": [],
   "costs": [],
-  "notes": [],
+  "notes": [
+    "Top-level provider/model (OpenRouter / ~deepseek/deepseek-v4-flash-latest) describe only the initial tool. Sessions S0018\u2013S0020 used Muse Spark muse-spark-1.2 via the Opencode harness (confirmed with Rajat 2026-08-26 to keep top-level as-is and defer to per-session breakdown per Fix 7). Per-session provider/model are authoritative; top-level is retained unchanged to avoid schema disruption.",
+    "S0021 is intentionally skipped in ai-usage.json: AI_USAGE.md merged S0018+S0019 into one markdown entry (historical), while ai-usage.json kept them as two separate JSON entries \u2014 the one-ID offset cascaded into the 10-fix IDs, so S0021 is left unused to re-align the files (Fix1=S0022 \u2026 summary=S0032 in both files after the 2026-08-26 follow-up)."
+  ],
   "sessions": [
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0001",
@@ -704,6 +707,388 @@
       "notes": [
         "Fixtures 10+8+10 events covering clear positives/negatives, ambiguous, duplicates, edits, short-text, provider-failure per evaluator pack + generate_and_post.py SIMULATED seeder; test_phase10_sweep 12 tests for 9 E2E flows (happy per source x3, duplicate concurrency 1 lead, edit vs duplicate receipts, manual-review BOTH receipts + resume, provider failure 3 retries ->202 -> visible -> replay 409, out-of-order attribution, hand-computed reconciliation variance 0, perf single 72ms<3000 summary 23m"
       ]
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0022",
+      "phase": "Fix 1 - Identity confidence_threshold enforcement",
+      "phase_name": "Fix 1 - Identity confidence_threshold enforcement",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "resolve.py enforces confidence_threshold (0.85) from identity_policy_v1.json: score < threshold => candidate None + reason no_confident_fuzzy_candidate, else fuzzy_name_company_manual_review; should_auto_link still False; test_resolve_identity updated for 0.50 case; test_fix1_threshold_proof 3 tests (0.10 None, 0.85 candidate, 0.95 candidate) fail before pass after.",
+      "verification": "test_fix1_threshold_proof 1 failed before (candidate UUID vs None), 3 passed after; full suite 224 passed 1 skipped (221+3)",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fix 1 - Identity confidence_threshold is never enforced (app/services/resolve.py)"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/services/resolve.py",
+        "tests/integration/test_resolve_identity.py",
+        "tests/integration/test_fix1_threshold_proof.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0023",
+      "phase": "Fix 2 - All validation errors recorded",
+      "phase_name": "Fix 2 - All validation errors recorded",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "events.py joins all ValidationError msgs via '; '.join(e['msg'] for e in exc.errors()) instead of [0]; ingest.py docstring documents semicolon-joined least-disruptive choice vs new JSON column; test_fix2_validation_proof 2 tests (multi-error >=2 parts, single-error identical) fail before pass after.",
+      "verification": "test_fix2_validation_proof 1 failed before (Field required only), 2 passed after; full suite 226 passed 1 skipped (224+2)",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fix 2 - Only first schema-validation error is recorded"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/routers/events.py",
+        "app/services/ingest.py",
+        "tests/integration/test_fix2_validation_proof.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0024",
+      "phase": "Fix 3 - Lower interpret_min_tokens 8\u21922",
+      "phase_name": "Fix 3 - Lower interpret_min_tokens 8\u21922",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "config.py default 8\u21922 with noise-vs-intent doc; .env.example adds INTERPRET_MIN_TOKENS comment; README 4 places 8\u21922 + cost rationale; test_prd_edge_cases 7-token skip \u2192 hi, edge_get_events >=8\u2192>=2, test_score_event comment, test_ingest_events/manual_review_api add mocks for 5/3-word messages now hitting LLM; test_fix3_threshold_proof 2 tests (want a quote 3w + i am interested... 7w calls LLM, hi 1w still skipped) fail before pass after.",
+      "verification": "test_fix3_threshold_proof 2 passed after (before would skip 3/7w); full suite 228 passed 1 skipped; test_interpret 4 passed 1 skipped unchanged for noise case",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fix 3 - interpret_min_tokens threshold is too aggressive"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/config.py",
+        ".env.example",
+        "README.md",
+        "tests/integration/test_prd_edge_cases.py",
+        "tests/integration/test_score_event.py",
+        "tests/integration/test_ingest_events.py",
+        "tests/integration/test_manual_review_api.py",
+        "tests/integration/test_fix3_threshold_proof.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0025",
+      "phase": "Fix 4 - write_receipt assert \u2192 ValueError",
+      "phase_name": "Fix 4 - write_receipt assert \u2192 ValueError",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "receipts.py assert \u2192 if raise ValueError (survives python -O), docstring/header updated; grep no AssertionError test; test_fix4_receipt_proof 2 tests (invalid raises ValueError, valid ok) fail before (AssertionError) pass after, verified python -O.",
+      "verification": "test_fix4_receipt_proof 1 failed before (AssertionError), 2 passed after incl -O; full suite 230 passed 1 skipped",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fix 4 - write_receipt safety check uses assert"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/services/receipts.py",
+        "tests/integration/test_fix4_receipt_proof.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0026",
+      "phase": "Fix 5 - Identity policy JSON self-contradiction",
+      "phase_name": "Fix 5 - Identity policy JSON self-contradiction",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "identity_policy_v1.json fuzzy_name_company requires [name,company] \u2192 requires [name], optional [company] to match code (fuzzy_similarity company optional); grep resolve.py confirms no code reads requires (purely descriptive); test_fix5_policy_proof 1 test asserts requires==[name] and optional company.",
+      "verification": "test_fix5_policy_proof 1 failed before ([name,company]), 1 passed after; full suite 231 passed 1 skipped",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fix 5 - Identity policy JSON self-contradicts"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/policies/identity_policy_v1.json",
+        "tests/integration/test_fix5_policy_proof.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0027",
+      "phase": "Fix 6 - README DATABASE_URL default correction",
+      "phase_name": "Fix 6 - README DATABASE_URL default correction",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "README Configuration row DATABASE_URL now \"\" in code (empty string); effective postgresql+asyncpg://... via docker-compose.yml ${DATABASE_URL:-...} when docker compose up; test_fix6_readme_proof asserts README row mentions empty/\"\" and docker-compose.yml and Settings.model_fields default == \"\".",
+      "verification": "test_fix6_readme_proof 1 failed before (row lacked empty), 1 passed after; full suite 232 passed 1 skipped",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fix 6 - README documented DB URL default doesn't match code"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "README.md",
+        "tests/integration/test_fix6_readme_proof.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0028",
+      "phase": "Fix 7 - ai-usage top-level provider/model disclosure",
+      "phase_name": "Fix 7 - ai-usage top-level provider/model disclosure",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "Top-level notes was []: added note that top-level provider/model (OpenRouter/deepseek) describe only initial tool, S0018\u2013S0020 used Muse Spark muse-spark-1.2 via Opencode harness, confirmed with Rajat 2026-08-26 via question tool Defer to per-session, least-disruptive additive fix no session removed; test_fix7_ai_usage_proof 2 tests assert notes mentions Muse Spark and per-session and both providers present.",
+      "verification": "test_fix7_ai_usage_proof 1 failed before (notes empty), 2 passed after; full suite 234 passed 1 skipped (232+2)",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fix 7 - ai-usage top-level provider/model don't reflect tool switch (confirmed with Rajat)"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "ai-usage.json",
+        "tests/integration/test_fix7_ai_usage_proof.py",
+        "AI_USAGE.md"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0029",
+      "phase": "Fix 8 - Redundant fallback in _extract_text",
+      "phase_name": "Fix 8 - Redundant fallback in _extract_text",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "interpret.py removed dead generic fallback if not body: body = get(message)/get(body) duplicating web_form branch; per-source branches already cover schema body fields; choice remove not replace because no genuine gap; test_fix8_extract_proof asserts comment gone and per-source branches remain.",
+      "verification": "test_fix8_extract_proof 1 failed before, 1 passed after; test_interpret 4 passed 1 skipped unchanged; full suite 235 passed 1 skipped",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fix 8 - Redundant fallback logic in _extract_text"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/services/interpret.py",
+        "tests/integration/test_fix8_extract_proof.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0030",
+      "phase": "Fix 9 - Unreachable check in admin replay handler",
+      "phase_name": "Fix 9 - Unreachable check in admin replay handler",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "admin.py removed dead if outcome[interpretation] is None: raise 409; code trace: classify_event via run_downstream always either returns with interpretations row (skipped or LLM, both commit) or raises InterpretError (dead-letter), no path returns normally with None; comment added explaining trace; test_fix9_unreachable_proof asserts substring gone.",
+      "verification": "test_fix9_unreachable_proof 1 failed before, 1 passed after; full suite 236 passed 1 skipped",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fix 9 - Unreachable check in admin replay handler"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/routers/admin.py",
+        "tests/integration/test_fix9_unreachable_proof.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0031",
+      "phase": "Fix 10 - simulate-failure duplicate guard",
+      "phase_name": "Fix 10 - simulate-failure duplicate guard",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "admin.py simulate-failure now SELECT DeadLetterQueue WHERE event_id and resolved=False before insert, if exists raise 409 already_dead_lettered matching not_dead_lettered pattern, else insert; after replay resolved new simulate allowed; test_fix10_deadletter_proof 2 tests (200 then 409 count 1, after resolved can simulate again) fail before (200+200 2 rows) pass after.",
+      "verification": "test_fix10_deadletter_proof 1 failed before (200 not 409), 2 passed after; full suite 238 passed 1 skipped",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fix 10 - simulate-failure can create duplicate unresolved dead-letter rows"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/routers/admin.py",
+        "tests/integration/test_fix10_deadletter_proof.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0032",
+      "phase": "10-Fix Audit Sweep \u2014 Summary (Fix 1\u201310, Phase-8-audit style)",
+      "phase_name": "10-Fix Audit Sweep \u2014 Summary (Fix 1\u201310, Phase-8-audit style)",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "Summary of 10 fixes applied one at a time suite green before next: Fix1 threshold enforcement, Fix2 all validation errors joined, Fix3 8\u21922 threshold + README/.env/docs, Fix4 assert\u2192ValueError, Fix5 policy requires fix, Fix6 README DB URL, Fix7 ai-usage top-level deferred to per-session (Rajat confirmed), Fix8 dead fallback removed, Fix9 unreachable replay check removed, Fix10 simulate duplicate guard; no migration, no unrelated refactors; 17 new proof tests (3+2+2+2+1+1+2+1+1+2) baseline 221\u2192238 passed.",
+      "verification": "Final DATABASE_URL=... pytest -q \u2192 238 passed 1 skipped in ~30s (>=221), >= baseline, live test gated, compileall+ruff clean, no new paid cost, docker compose config OK. Per-fix counts: 224,226,228,230,231,232,234,235,236,238 each green before next.",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "10-fix audit sweep Fix 1\u201310"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/services/resolve.py",
+        "app/routers/events.py",
+        "app/services/ingest.py",
+        "app/config.py",
+        ".env.example",
+        "README.md",
+        "app/services/receipts.py",
+        "app/policies/identity_policy_v1.json",
+        "ai-usage.json",
+        "app/services/interpret.py",
+        "app/routers/admin.py",
+        "tests/integration/test_fix1_threshold_proof.py",
+        "tests/integration/test_fix2_validation_proof.py",
+        "tests/integration/test_fix3_threshold_proof.py",
+        "tests/integration/test_fix4_receipt_proof.py",
+        "tests/integration/test_fix5_policy_proof.py",
+        "tests/integration/test_fix6_readme_proof.py",
+        "tests/integration/test_fix7_ai_usage_proof.py",
+        "tests/integration/test_fix8_extract_proof.py",
+        "tests/integration/test_fix9_unreachable_proof.py",
+        "tests/integration/test_fix10_deadletter_proof.py",
+        "AI_USAGE.md"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0033",
+      "phase": "Follow-ups A+B - Session-ID alignment + dead-letter DB constraint",
+      "phase_name": "Follow-ups A+B - Session-ID alignment + dead-letter DB constraint (Fix 10 hardening)",
+      "date": "2026-08-26",
+      "human_modified_files": [],
+      "summary": "Follow-up A: bumped all 11 JSON fix-session IDs up by one (S0021->S0022 Fix1 ... S0031->S0032 summary) to match AI_USAGE.md (which merged S0018+S0019 into one markdown entry historically); left S0021 explicitly unused/skipped in ai-usage.json with top-level notes explaining the gap; did not renumber any session before S0021; verified via grep no duplicates and S0022 Fix1 ... S0032 summary now agree in both files. Follow-up B: added migration 0013_dead_letter_unresolved_unique (partial unique index uq_dead_letter_queue_event_id_unresolved on dead_letter_queue(event_id) WHERE resolved=false, mirroring 0003 style, dedup keep oldest), added matching Index to DeadLetterQueue.__table_args__ in models.py, updated simulate_failure in admin.py to keep SELECT guard but also wrap INSERT in try/except IntegrityError -> rollback -> 409 already_dead_lettered (same pattern as _link_via_exact), hardened interpret.py dead-letter path to catch IntegrityError on same index and suppress duplicate (still raise InterpretError -> 503, row count stays 1), updated test_admin.py test_replay_redeadletters_when_provider_still_down to expect 1 row/receipt (duplicate suppressed) instead of 2, added concurrency test test_fix10_concurrent_simulate_failure_creates_one_row (asyncio.gather two simulate-failure, assert [200,409] and 1 unresolved row).",
+      "verification": "Before follow-ups: 238 passed 1 skipped. After A: 238 passed 1 skipped (grep confirms S0021 gap in JSON, S0022-S0032 aligned, no duplicates). After B: 239 passed 1 skipped (238 + 1 new concurrency test, live gated). Full suite final: DATABASE_URL=... pytest -q -> 239 passed 1 skipped. compileall clean. Migration 0013 syntactically valid and Base.metadata.create_all creates partial index.",
+      "started_at": "2026-08-26T00:00:00Z",
+      "ended_at": "2026-08-26T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Follow-up A - Align ai-usage.json session IDs to AI_USAGE.md",
+        "Follow-up B - Close the simulate-failure race condition with a real DB constraint"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "ai-usage.json",
+        "AI_USAGE.md",
+        "app/db/migrations/versions/0013_dead_letter_unresolved_unique.py",
+        "app/db/models.py",
+        "app/routers/admin.py",
+        "app/services/interpret.py",
+        "tests/integration/test_admin.py",
+        "tests/integration/test_fix10_deadletter_proof.py"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0034",
+      "phase": "Defect - Alembic revision varchar(32) overflow in 0013 (live verification, not caught by test suite)",
+      "phase_name": "Defect - Alembic revision varchar(32) overflow in 0013 (live verification, not caught by test suite)",
+      "date": "2026-08-27",
+      "human_modified_files": [],
+      "summary": "Defect found during genuine live docker compose up (fresh volume, empty alembic_version), not caught by test suite (which builds schema via Base.metadata.create_all and never exercises alembic_version varchar(32)). Bug: app/db/migrations/versions/0013_dead_letter_unresolved_unique.py had revision = \"0013_dead_letter_unresolved_unique\" len 34 > 32 (Alembic's alembic_version.version_num is varchar(32) by default), so UPDATE alembic_version failed with asyncpg.exceptions.StringDataRightTruncationError and crashed migration on every fresh deploy. Fix: renamed revision to \"0013_dlq_unresolved_unique\" len 26 (still 0013-tied, descriptive) and renamed file to 0013_dlq_unresolved_unique.py (updated docstring header); verified no other file references old revision as down_revision (grep found none, since 0013 is head); audited every migration revision/down_revision len (all 13 now <=32, 0012 at 31 is next-longest, full report in AI_USAGE.md); added python-multipart==0.0.9 to requirements.txt (discovered during live verification that Docker image was missing this FastAPI Form dep from app/routers/pages.py:12, so uvicorn crashed with RuntimeError even after migration was fixed; host had it installed so pytest never caught it); verified via truly clean docker compose down -v + build + up -d (fresh pgdata, empty alembic_version) that logs show Running upgrade ... -> 0013_dlq_unresolved_unique ... and Uvicorn running and curl /health 200 {status:ok,db:ok}; regression: tests/unit/test_migration_revision_length.py asserts every revision/down_revision len <=32 and 0013 is 26 and starts with 0013_, fails against buggy 34-char string.",
+      "verification": "Audit: all 13 revisions now len <=32 (0013 34->26, 0012 31, rest <=26). Verified no down_revision references old string. Truly clean: docker compose down -v && docker compose build && docker compose up -d -> logs show 0001->0013_dlq_unresolved_unique apply successfully then Uvicorn running, curl /health 200. pytest -q -> 241 passed 1 skipped (239 +2 regression), compileall clean. Regression test fails against buggy string, passes after rename.",
+      "started_at": "2026-08-27T00:00:00Z",
+      "ended_at": "2026-08-27T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Bug found during a genuine live docker compose up run (not caught by the test suite, since it only exercises against a schema already at head)"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/db/migrations/versions/0013_dlq_unresolved_unique.py",
+        "requirements.txt",
+        "tests/unit/test_migration_revision_length.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
     }
   ]
 }

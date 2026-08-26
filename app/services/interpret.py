@@ -129,9 +129,6 @@ def _extract_text(event: Event, identity_fields: dict | None) -> str:
         body = (event.raw_payload or {}).get("text") or (event.raw_payload or {}).get("body")
     elif source == "email_engagement":
         body = (event.raw_payload or {}).get("reply_body")
-    if not body:
-        # generic fallback over a few known keys
-        body = (event.raw_payload or {}).get("message") or (event.raw_payload or {}).get("body")
     return (body or "").strip()
 
 
@@ -318,27 +315,56 @@ async def classify_event(
         # (FR-9 atomicity), then surface a visible error to the router.
         # Sanitize/truncate the provider error — no raw secrets, no unbounded text.
         sanitized = str(exc)[:500]
+        # Capture stable id before flush/rollback (rollback would expire the ORM object)
+        event_id_val = event.id
         dlq = DeadLetterQueue(
-            event_id=event.id,
+            event_id=event_id_val,
             stage="interpret",
             error=sanitized,
             retry_count=attempt_count,
         )
         db.add(dlq)
-        await db.flush()  # populate dlq.id before the receipt references it
-        await write_receipt(
-            db,
-            action_type="dead_lettered",
-            entity_id=dlq.id,
-            entity_type="dead_letter",
-            event_id=event.id,
-            metadata={"stage": "interpret", "retry_count": attempt_count},
-            status="error",
-        )
-        await db.commit()  # DLQ row + dead_lettered receipt committed together
+        try:
+            await db.flush()  # populate dlq.id before the receipt references it
+            await write_receipt(
+                db,
+                action_type="dead_lettered",
+                entity_id=dlq.id,
+                entity_type="dead_letter",
+                event_id=event_id_val,
+                metadata={"stage": "interpret", "retry_count": attempt_count},
+                status="error",
+            )
+            await db.commit()  # DLQ row + dead_lettered receipt committed together
+        except Exception as ie:  # noqa: BLE001 — catch IntegrityError from partial unique index
+            from sqlalchemy.exc import IntegrityError as SAIntegrityError
+            if isinstance(ie, SAIntegrityError):
+                await db.rollback()
+                # An unresolved DLQ row already exists for this event (concurrent
+                # simulate-failure race or sequential replay re-dead-letter). The
+                # existing row already represents the dead-letter state; a second
+                # unresolved row would violate uq_dead_letter_queue_event_id_unresolved
+                # and break the 1:1 DLQ↔receipt invariant. We keep the original
+                # row and still surface the failure.
+                logger.error(
+                    "interpret_dead_lettered_duplicate_suppressed",
+                    input_id=str(event_id_val),
+                    decision="dead_letter",
+                    reason=f"classification failed after {attempt_count} attempts; unresolved DLQ already exists, duplicate suppressed",
+                    action="dead_lettered",
+                    result="error",
+                    error=sanitized,
+                    timing_ms=round((time.monotonic() - start) * 1000, 2),
+                    retry_count=attempt_count,
+                )
+                raise InterpretError(
+                    f"classification failed after {attempt_count} attempts: {exc}",
+                    [exc],
+                ) from exc
+            raise
         logger.error(
             "interpret_dead_lettered",
-            input_id=str(event.id),
+            input_id=str(event_id_val),
             decision="dead_letter",
             reason=f"classification failed after {attempt_count} attempts; event dead-lettered",
             action="dead_lettered",

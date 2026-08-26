@@ -4,7 +4,7 @@ Every mutating action in the pipeline (ingest, resolve, interpret, score, act,
 attribute) writes a receipt row in the same DB transaction as the action itself.
 This function never commits — the caller owns the transaction.
 
-Valid action_type values (enforced by assertion):
+Valid action_type values (enforced by ValueError):
   event_created, event_edited, event_rejected,
   identity_created, review_queued, review_resolved,
   interpreted, scored,
@@ -51,11 +51,15 @@ async def write_receipt(
 ) -> Receipt:
     """Create a receipt row. Does NOT commit — caller owns the transaction.
 
-    Raises AssertionError if action_type is not in VALID_ACTION_TYPES — this is
+    Raises ValueError if action_type is not in VALID_ACTION_TYPES — this is
     a programmer error, not a runtime failure, so we want it loud and early.
+    ValueError is used instead of assert so the check survives ``python -O``
+    (asserts are stripped with -O, silently disabling the safety check).
     """
-    assert action_type in VALID_ACTION_TYPES, \
-        f"Unknown action_type '{action_type}'. Add it to VALID_ACTION_TYPES."
+    if action_type not in VALID_ACTION_TYPES:
+        raise ValueError(
+            f"Unknown action_type '{action_type}'. Add it to VALID_ACTION_TYPES."
+        )
     row = Receipt(
         action_type=action_type,
         entity_id=entity_id,

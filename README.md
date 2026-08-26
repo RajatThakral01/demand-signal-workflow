@@ -34,7 +34,7 @@ See `docs/PRD_Demand_Signal_Workflow_v1_2.md` and `docs/Project02_Implementation
 | `POST /api/v1/admin/simulate-failure` | **TEST-HARNESS ONLY** | Dead-letters an event without a real provider call, so replay can be exercised. Bearer-token gated. | `app/routers/admin.py` |
 | Test suite LLM calls | **MOCKED** | `interpret._call_llm` is monkeypatched so tests are deterministic and offline. | `tests/integration/*` |
 
-Two efficiency short-circuits mean not every event triggers the LIVE call: text below `INTERPRET_MIN_TOKENS` (default 8 words) is classified deterministically as `unknown`, and a true duplicate (same `dedupe_key` + `payload_hash`) returns early without re-running the pipeline.
+Two efficiency short-circuits mean not every event triggers the LIVE call: text below `INTERPRET_MIN_TOKENS` (default 2 words — pure noise like "hi"/"test", not short-but-real intent like "want a quote") is classified deterministically as `unknown`, and a true duplicate (same `dedupe_key` + `payload_hash`) returns early without re-running the pipeline.
 
 ## Architecture
 
@@ -155,7 +155,7 @@ All via `app/config.py` (`pydantic-settings`, reads `.env`, `extra=ignore`):
 
 | Var | Required | Default | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | no | `postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw` (compose) | App DB |
+| `DATABASE_URL` | no | `""` in code (empty string); effective `postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw` via `docker-compose.yml` `${DATABASE_URL:-...}` when running `docker compose up` | App DB |
 | `TEST_DATABASE_URL` | no | `postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw_test` | Isolated test DB, hard-assigned to `DATABASE_URL` in `tests/conftest.py` |
 | `OPENROUTER_API_KEY` | no* | `""` | LIVE classification via OpenRouter (`_call_llm`). Empty → runtime `RuntimeError` if long text needs classification. Tests mock it. |
 | `CLASSIFICATION_MODEL` | no | `deepseek/deepseek-v4-flash` | Pinned model via OpenRouter (see Cost). PRD example was `anthropic/claude-haiku-4.5`. |
@@ -167,7 +167,7 @@ All via `app/config.py` (`pydantic-settings`, reads `.env`, `extra=ignore`):
 | `RETRY_MAX_ATTEMPTS` | no | `3` | Bounded retry (FR-11) |
 | `RETRY_BASE_DELAY_MS` | no | `500` | Base for `wait_random_exponential` |
 
-`*` `OPENROUTER_API_KEY` empty is allowed for local runs that only test short-text (`<8` tokens → `unknown` without LLM) or mocked tests. Any long-text event (`≥8` tokens) will 500 without a key — set it from `.env.example`.
+`*` `OPENROUTER_API_KEY` empty is allowed for local runs that only test short-text (`<2` tokens → `unknown` without LLM) or mocked tests. Any long-text event (`≥2` tokens) will 500 without a key — set it from `.env.example`.
 
 ## Usage
 
@@ -207,7 +207,7 @@ HTML: `open http://localhost:8000/dashboard` — summary with reconciliation `PA
 * **Primary test run:** `212 tokens (132 prompt + 80 completion)` on `deepseek/deepseek-v4-flash` via OpenRouter = **`$0.000026` total** (USD) at DeepSeek V4 Flash pricing `($0.089 / 1M prompt, $0.177 / 1M completion)`. Stored per-result in `interpretations.token_usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`) and `model_version`/`prompt_version`.
 * **Total across 4–5 probe + live calls during tuning:** `≈ $0.0003` — sub-cent.
 * **Model:** `deepseek/deepseek-v4-flash` (pinned `CLASSIFICATION_MODEL`). OpenRouter model list confirmed `deepseek/deepseek-v4-flash` exists. `temperature=0`, `max_tokens=200` (tuned: smaller truncated reasoning + JSON).
-* **Efficiency savings:** text `<8` tokens never calls the LLM (`label=unknown`, `model_version=none`, `was_skipped=true`); true duplicate (`dedupe_key + payload_hash` match) returns early with no pipeline. So not every event incurs the LIVE call.
+* **Efficiency savings:** text `<2` tokens never calls the LLM (`label=unknown`, `model_version=none`, `was_skipped=true`) — pure noise like "hi"/"test" only; short-but-real intent like "want a quote" (3 words) does call the LLM (at ~$0.000026/call, recall beats the saving); true duplicate (`dedupe_key + payload_hash` match) returns early with no pipeline. So not every event incurs the LIVE call.
 
 **Rate limits & assumptions:**
 
@@ -215,7 +215,7 @@ HTML: `open http://localhost:8000/dashboard` — summary with reconciliation `PA
 * No other paid service is used. No message broker, no paid CRM/ESP/social API. Postgres via Docker Compose is the only infra. If you need higher throughput, the in-DB `dead_letter_queue` is the v1 stand-in for a queue (PRD §2).
 * Token usage per request is independent of dataset size; 500-event dashboard perf (see below) is DB aggregation, not LLM.
 
-**Explicit statement:** **No paid service beyond the approved OpenRouter usage was incurred.** The only real spend risk is OpenRouter tokens for the interpretation stage, kept sub-cent by the 8-token skip and cheap model.
+**Explicit statement:** **No paid service beyond the approved OpenRouter usage was incurred.** The only real spend risk is OpenRouter tokens for the interpretation stage, kept sub-cent by the 2-token noise-only skip and cheap model.
 
 **Performance (measured, PRD §5):** `single ingest→act (mocked LLM, under seeded load) 72.23 ms <3000 ms`; `summary 22.95 ms`, `reconciliation 19.75 ms`, `dashboard HTML 32.06 ms` for 500 events (all `<1000 ms`). See Phase 10 `test_phase10_sweep` prints.
 
@@ -280,5 +280,5 @@ Schema changes are Alembic revisions under `app/db/migrations/versions/`. An exi
 * **DB volume already exists before `dsw_test` init:** `docker compose down -v` once, then `up` (see Setup volume caveat).
 * **Image stale after new migration:** `docker compose build` then `up` (migrations are baked into image, entrypoint runs `alembic upgrade head`).
 * **Tests wipe dev data:** they don't — `TEST_DATABASE_URL` (`dsw_test`) is isolated; `DATABASE_URL` (`dsw`) is unaffected (hard-assign in `tests/conftest.py`, not `setdefault`).
-* **`OPENROUTER_API_KEY` empty + long text → 500:** set a real key in `.env` or keep text `<8` tokens / mock in tests (`interpret._call_llm`).
+* **`OPENROUTER_API_KEY` empty + long text → 500:** set a real key in `.env` or keep text `<2` tokens / mock in tests (`interpret._call_llm`).
 * **`psql: database "dsw_test" does not exist` on host:** `psql -h /tmp -d postgres -c "CREATE DATABASE dsw_test OWNER rajatthakral;"`.

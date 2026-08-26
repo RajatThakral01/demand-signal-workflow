@@ -16,7 +16,8 @@
       "auto_link": false,
       "_comment": "Low confidence, manual review only, NEVER auto-merge. Applied only when no exact email/phone matched. Name and company similarity rank a candidate for the reviewer; the score is never approval to merge. The algorithm is the Python stdlib `difflib.SequenceMatcher.ratio()` over normalized token sequences (no third-party dependency; deterministic and good enough for name-with-typos matching at this scale).",
       "algorithm": "average of difflib.SequenceMatcher.ratio over normalized display-name and company token sequences when both companies are known; name-only is a reviewer suggestion",
-      "requires": ["name", "company"],
+      "requires": ["name"],
+      "optional": ["company"],
       "_confidence_note": "The 0.85 threshold ranks candidate strength for review; it does not permit a fuzzy auto-link. Every fuzzy candidate remains pending until a reviewer explicitly chooses merge_into or create_new."
     }
   },

@@ -386,14 +386,27 @@ async def resolve_identity(db: AsyncSession, event: Any) -> dict:
             return {"status": "linked", "identity_id": identity.id,
                     "rule": "fuzzy_name_company", "confidence": Decimal("1.00")}
         score = fuzzy_similarity(name, _identity_name(candidate), company, candidate.primary_company)
-        # Fuzzy matching only proposes a candidate. The policy deliberately makes
-        # every candidate human-reviewed, regardless of its score.
-        reason = f"fuzzy_name_company_manual_review:{score}"
-        entry = await _queue_review(db, event.id, candidate.id, reason, score)
-        await db.commit()
-        await db.refresh(entry)
-        return {"status": "queued_review", "review_id": entry.id,
-                "candidate_identity_id": candidate.id, "confidence": score}
+        # Enforce the versioned confidence_threshold: only scores at or above the
+        # threshold propose a candidate to the reviewer; below-threshold scores are
+        # still queued for review (there is no email/phone to auto-link on) but
+        # with no suggested candidate. Auto-merge must NEVER happen regardless
+        # of score (see should_auto_link which always returns False).
+        policy = _load_policy()
+        threshold = Decimal(str(policy.get("confidence_threshold", "0.85")))
+        if score < threshold:
+            reason = "no_confident_fuzzy_candidate"
+            entry = await _queue_review(db, event.id, None, reason, score)
+            await db.commit()
+            await db.refresh(entry)
+            return {"status": "queued_review", "review_id": entry.id,
+                    "candidate_identity_id": None, "confidence": score}
+        else:
+            reason = f"fuzzy_name_company_manual_review:{score}"
+            entry = await _queue_review(db, event.id, candidate.id, reason, score)
+            await db.commit()
+            await db.refresh(entry)
+            return {"status": "queued_review", "review_id": entry.id,
+                    "candidate_identity_id": candidate.id, "confidence": score}
 
     # No identity fields at all -> cannot resolve.
     reason = "no_identity_fields"

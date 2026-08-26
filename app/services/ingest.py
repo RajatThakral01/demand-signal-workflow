@@ -74,6 +74,14 @@ async def persist_invalid_event(
     Uses the raw payload dict because no valid model exists to project fields
     from. ``dedupe_key`` may be None if the source/external id are absent; the
     UNIQUE(NOT-NULL-excluding) constraint still applies to any row that has one.
+
+    ``invalid_reason`` is a semicolon-joined string of *all* Pydantic validation
+    error messages (not just the first). Single-error payloads remain a single
+    message with no separator, so existing single-error assertions stay identical.
+    The full joined string is stored in ``events.invalid_reason`` and echoed in
+    the ``event_rejected`` receipt metadata; ``raw_payload`` retains the original
+    body for audit. This was the least-disruptive choice (no schema change, no
+    new column) versus adding a new JSON list field.
     """
     start = time.monotonic()
     source = payload.get("source")
