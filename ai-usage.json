@@ -1177,6 +1177,33 @@
       ],
       "costs": [],
       "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0038",
+      "phase": "Defect - Fresh-clone startup fails on empty int env vars (ValidationError on cp .env.example .env)",
+      "phase_name": "Defect - Fresh-clone startup fails on empty int env vars (ValidationError on cp .env.example .env)",
+      "date": "2026-08-27",
+      "human_modified_files": [],
+      "summary": "Defect found during genuine clean-environment verification (cp .env.example .env + only ADMIN_API_KEY), not caught by suite. Bug: .env.example shipped RETRY_MAX_ATTEMPTS=, RETRY_BASE_DELAY_MS=, INTERPRET_MIN_TOKENS= as empty (names-only). On fresh clone cp .env.example .env + only ADMIN_API_KEY, those stay \"\" which pydantic-settings presents as \"\" for int fields -> ValidationError int_parsing at Settings() startup (before ADMIN_API_KEY check). docker-compose already had ${VAR:-default} so docker compose config looked OK, masking host Settings() failure. No prior test exercised Settings() with \"\" for those ints. Fix: app/config.py added field_validator mode=before for those three ints that treats \"\"/None as missing -> Field default (2/3/500), parity with docker-compose ${VAR:-default}; .env.example set RETRY_MAX_ATTEMPTS=3 RETRY_BASE_DELAY_MS=500 INTERPRET_MIN_TOKENS=2 so fresh .env already valid, validator remains safety net. Verification: before fresh clone Settings() -> ValidationError 3 errors; after -> 2 3 500, docker compose config OK, LLM_PROVIDER=groq blank still succeeds at startup and fails only at get_client() mirroring openrouter.",
+      "verification": "Before: fresh clone without validator ADMIN_API_KEY=test python3 -c 'from app.config import Settings; Settings()' -> ValidationError 3 int_parsing input_value='' . After: git clone file://$(pwd) /tmp/dsw-fresh && cp .env.example .env && printf ADMIN_API_KEY=... >>.env -> python3 -c Settings() prints 2 3 500; docker compose config OK; LLM_PROVIDER=groq GROQ_API_KEY='' succeeds at startup, fails only at get_client() RuntimeError GROQ_API_KEY not configured (mirroring OPENROUTER). pytest -q still 249 passed 1 skipped.",
+      "started_at": "2026-08-27T00:00:00Z",
+      "ended_at": "2026-08-27T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Fresh-clone startup ValidationError when .env.example int vars are empty: cp .env.example .env + only ADMIN_API_KEY leaves RETRY_MAX_ATTEMPTS/RETRY_BASE_DELAY_MS/INTERPRET_MIN_TOKENS as empty string which pydantic fails to parse as int"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/config.py",
+        ".env.example",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
     }
   ]
 }

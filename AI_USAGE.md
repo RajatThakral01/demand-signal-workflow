@@ -1229,3 +1229,20 @@ triggers the LIVE call, and a migration note for `0011`.
   - `pytest -q` still **241 passed, 1 skipped** (unchanged, since no code touched — final run pasted in `docs/evidence/pytest_final.txt`).
 
 ---
+
+### Session: Defect — Fresh-clone startup fails on empty int env vars (ValidationError on `cp .env.example .env`)
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0038`
+- **Date:** 2026-08-27
+- **Provider / model:** Muse Spark, `muse-spark-1.2`
+- **Classification:** Defect found during genuine clean-environment verification (`cp .env.example .env` + only `ADMIN_API_KEY`), not caught by test suite or prior `docker compose config`.
+- **What the bug was:** `.env.example` shipped `RETRY_MAX_ATTEMPTS=`, `RETRY_BASE_DELAY_MS=`, `INTERPRET_MIN_TOKENS=` as **empty** (names-only intent, “no value”). On a fresh clone `cp .env.example .env` + `printf "\nADMIN_API_KEY=test\n" >> .env` those three vars remain `""`. Pydantic-settings reads `.env` and presents `""` as the field value, which `pydantic` then tries to parse as `int` → `ValidationError: Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='', input_type=str]` at `Settings()` construction — app fails at **import/startup**, before `ADMIN_API_KEY` check. `docker-compose.yml` already handled this with `${VAR:-default}` fallback, so `docker compose config` inside the fresh clone looked OK (`500`/`3`), masking the host-side `Settings()` failure that `pytest` and `uvicorn` outside Docker hit. No prior test ever exercised `Settings()` with `""` for those int fields (tests set explicit valid values or rely on `TEST_DATABASE_URL` host default).
+- **Fix:**
+  - `app/config.py:61` — added `@field_validator("interpret_min_tokens", "retry_max_attempts", "retry_base_delay_ms", mode="before") _empty_str_to_none` that treats `""` (and `None`) as missing and returns the `Field(default=...)` value (`2`/`3`/`500`) — same as if the var were not set at all, parity with `docker-compose ${VAR:-default}`. Preserves validator parity with OpenRouter/Groq string keys which already allow `""` at startup and fail only at call time.
+  - `.env.example:54` — set `RETRY_MAX_ATTEMPTS=3`, `RETRY_BASE_DELAY_MS=500`, `INTERPRET_MIN_TOKENS=2` (was empty) so a fresh `cp .env.example .env` already has valid ints; validator remains as a safety net for an explicitly-empty override.
+- **Verification:**
+  - Before fix (fresh clone `file://$(pwd)` without the validator): `ADMIN_API_KEY=test-evaluator-key-12345 python3 -c "from app.config import Settings; Settings()"` → `ValidationError 3 validation errors for Settings` `interpret_min_tokens/retry_max_attempts/retry_base_delay_ms int_parsing input_value=''`.
+  - After fix: fresh clone `git clone file://$(pwd) /tmp/dsw-fresh && cp .env.example .env && printf "ADMIN_API_KEY=test-evaluator-key-12345\n" >> .env && (cd /tmp/dsw-fresh && ADMIN_API_KEY=test-evaluator-key-12345 python3 -c "from app.config import Settings; s=Settings(); print(s.interpret_min_tokens, s.retry_max_attempts, s.retry_base_delay_ms)")` → `2 3 500`; `docker compose config` OK; `LLM_PROVIDER=groq GROQ_API_KEY=""` still succeeds at startup and fails only at `get_client()` `RuntimeError: GROQ_API_KEY is not configured` (mirroring `OPENROUTER_API_KEY` — blank allowed for short-text-only/mocked runs).
+  - `pytest -q` still **249 passed, 1 skipped** (unchanged, validator is a safety net).
+- **Human review / changes:** pending Rajat review.
+
+---
