@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -57,6 +57,19 @@ class Settings(BaseSettings):
     # --- Retry / backoff (FR-11) ------------------------------------------------
     retry_max_attempts: int = Field(default=3, ge=1)
     retry_base_delay_ms: int = Field(default=500, ge=0)
+
+    @field_validator("interpret_min_tokens", "retry_max_attempts", "retry_base_delay_ms", mode="before")
+    @classmethod
+    def _empty_str_to_none(cls, v, info):
+        # .env.example ships these as empty (e.g. RETRY_MAX_ATTEMPTS=) to show
+        # the name without a value; an empty string would otherwise fail int
+        # parsing (e.g. fresh `cp .env.example .env` + only ADMIN_API_KEY set).
+        # Treat "" as missing so the Field default is used — same as if the
+        # var were not set at all (and same as docker-compose's ${VAR:-default}).
+        if v == "" or v is None:
+            defaults = {"interpret_min_tokens": 2, "retry_max_attempts": 3, "retry_base_delay_ms": 500}
+            return defaults.get(info.field_name)
+        return v
 
 
 @lru_cache(maxsize=1)
