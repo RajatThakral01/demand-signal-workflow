@@ -69,7 +69,7 @@ async def create_or_update_lead(
     db: AsyncSession,
     event: Event,
     identity_id: uuid.UUID,
-    score_row: Score,
+    score_row: Score | None,
 ) -> tuple[Lead, str]:
     """Create a lead for the identity, or update the existing one.
 

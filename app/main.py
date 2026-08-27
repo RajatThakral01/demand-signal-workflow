@@ -60,6 +60,16 @@ app.include_router(dead_letter_router)
 app.include_router(admin_router)
 app.include_router(pages_router)
 
+# Security headers middleware (OWASP baseline for evaluator tooling)
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 # Static files for dashboard (CSS) — mount after routers so /static is reserved
 _static_dir = Path(__file__).resolve().parent / "static"
 if _static_dir.exists():

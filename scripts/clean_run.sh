@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-echo "=== Phase 10 clean-environment run ==="
+echo "=== clean-environment run ==="
 echo "Start: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 START=$(date +%s)
 echo "1/4 Dropping and recreating test DB dsw_test..."
