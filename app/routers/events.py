@@ -150,6 +150,10 @@ async def create_event(
     # Short text skips the LLM; a provider failure after bounded retries raises
     # InterpretError (dead-letter row + receipt already written) rather than
     # fabricating an unknown.
+    # Capture stable id before run_downstream: classify_event may rollback on
+    # duplicate DLQ (partial unique index) which would expire the ORM object and
+    # make a later `str(event.id)` trigger a lazy load outside greenlet (MissingGreenlet).
+    event_id_str = str(event.id)
     try:
         outcome = await run_downstream(db, event, resolution["identity_id"])
     except InterpretError:
@@ -158,7 +162,7 @@ async def create_event(
         # classify_event (atomic), and the entry is listable via
         # GET /api/v1/dead-letter. PRD §4 Error States requires 202 here.
         response.status_code = 202
-        return _dead_letter_response(str(event.id), status_flag, stage="interpret")
+        return _dead_letter_response(event_id_str, status_flag, stage="interpret")
 
     return _interpret_response(str(event.id), status_flag, identity_id,
                                outcome["interpret"], outcome["score_row"],

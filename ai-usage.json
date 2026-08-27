@@ -1089,6 +1089,33 @@
       ],
       "costs": [],
       "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0035",
+      "phase": "Defect - Edit of dead-lettered event returns 500 instead of 202 (regression from Follow-up B, live testing catch)",
+      "phase_name": "Defect - Edit of dead-lettered event returns 500 instead of 202 (regression from Follow-up B, live testing catch)",
+      "date": "2026-08-27",
+      "human_modified_files": [],
+      "summary": "Defect found during live end-to-end testing (edit of a dead-lettered event), not caught by test suite \u2014 regression introduced by Follow-up B (Fix-10 DB constraint). Bug: Follow-up B added partial unique index uq_dead_letter_queue_event_id_unresolved and duplicate_suppressed branch in classify_event that correctly re-raised InterpretError, but the event ORM object becomes expired after await db.rollback() inside that branch. Caller in app/routers/events.py:154 then did str(event.id) after await run_downstream raised, triggering lazy load outside greenlet (MissingGreenlet), which is not InterpretError, so except InterpretError did not catch it and it propagated as 500. Why not caught: suite builds schema via Base.metadata.create_all (bypasses alembic_version) and no test ever did dead-letter -> edit of same external_event_id while provider still failing; existing dead-letter tests use distinct IDs and the replay re-dead-letter test goes through admin.py which does not access event.id after the error. Fix: capture event_id_str = str(event.id) before await run_downstream in events.py and use it in the except dead-letter response; interpret.py duplicate branch already correctly re-raises InterpretError identically to normal path (verified). Also verified manual_review.py and admin.py are not affected (they use resolved[\"event_id\"] or no event.id). Regression: tests/integration/test_fix_deadletter_edit_regression.py (1 test) fails before (MissingGreenlet 500) and passes after (202 dead_letter).",
+      "verification": "Before fix: test_edit_of_dead_lettered_event_still_returns_202_not_500 -> FAILED MissingGreenlet (500). After fix: 1 passed; full suite 242 passed 1 skipped (was 241, +1 new). Verified duplicate_suppressed branch still raises InterpretError identically (git show). Code trace confirms only ingest edit path was affected.",
+      "started_at": "2026-08-27T00:00:00Z",
+      "ended_at": "2026-08-27T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Real bug found during live end-to-end testing (not caught by the test suite). Reproduction: submit an event with real text while OPENROUTER_API_KEY is invalid/expired, so it dead-letters. Then submit an EDIT of that same event (same external_event_id, different payload). Expected: same 202 dead_letter response. Actual: raw 500 Internal Server Error, unhandled exception."
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/routers/events.py",
+        "tests/integration/test_fix_deadletter_edit_regression.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
     }
   ]
 }
