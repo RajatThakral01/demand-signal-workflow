@@ -8,8 +8,8 @@
   "skills_tools": [],
   "costs": [],
   "notes": [
-    "Top-level provider/model (OpenRouter / ~deepseek/deepseek-v4-flash-latest) describe only the initial tool. Sessions S0018\u2013S0020 used Muse Spark muse-spark-1.2 via the Opencode harness (confirmed with Rajat 2026-08-26 to keep top-level as-is and defer to per-session breakdown per Fix 7). Per-session provider/model are authoritative; top-level is retained unchanged to avoid schema disruption.",
-    "S0021 is intentionally skipped in ai-usage.json: AI_USAGE.md merged S0018+S0019 into one markdown entry (historical), while ai-usage.json kept them as two separate JSON entries \u2014 the one-ID offset cascaded into the 10-fix IDs, so S0021 is left unused to re-align the files (Fix1=S0022 \u2026 summary=S0032 in both files after the 2026-08-26 follow-up)."
+    "Top-level provider/model (OpenRouter / ~deepseek/deepseek-v4-flash-latest) describe only the initial tool. Sessions S0018–S0020 used Muse Spark muse-spark-1.2 via the Opencode harness (confirmed with Rajat 2026-08-26 to keep top-level as-is and defer to per-session breakdown per Fix 7). Per-session provider/model are authoritative; top-level is retained unchanged to avoid schema disruption.",
+    "S0021 is intentionally skipped in ai-usage.json: AI_USAGE.md merged S0018+S0019 into one markdown entry (historical), while ai-usage.json kept them as two separate JSON entries — the one-ID offset cascaded into the 10-fix IDs, so S0021 is left unused to re-align the files (Fix1=S0022 … summary=S0032 in both files after the 2026-08-26 follow-up)."
   ],
   "sessions": [
     {
@@ -24,7 +24,8 @@
         "phase 0 scaffolding prompt: folder structure, docker-compose, Dockerfile, alembic, requirements, .env.example, config, logging, health, gitignore, AI disclosure"
       ],
       "notes": [
-        "Phase 0 post-review fixups (Rajat review): (1) removed hardcoded ADMIN_API_KEY default from docker-compose.yml and made app/config.py require it (fail-fast) - verified settings raises ValidationError when unset and /health still 200 when set via .env; (2) added 'notes' field top-level and per-session to ai-usage.json; (3) moved PRD + Implementation Plan into docs/ via git mv; README already referenced docs/"
+        "Phase 0 post-review fixups (Rajat review): (1) removed hardcoded ADMIN_API_KEY default from docker-compose.yml and made app/config.py require it (fail-fast) - verified settings raises ValidationError when unset and /health still 200 when set via .env; (2) added 'notes' field top-level and per-session to ai-usage.json; (3) moved PRD + Implementation Plan into docs/ via git mv; README already referenced docs/",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ],
       "skills_tools": [],
       "generated_files": [
@@ -75,7 +76,8 @@
         "phase 1 prompt: FR-1/FR-2, events table + UNIQUE(dedupe_key) migration, POST/GET /api/v1/events with malformed-400 / schema-invalid-200 / dedupe / edit branches, unit + concurrency + DB-constraint tests"
       ],
       "notes": [
-        "edit path leaves an event_edited receipt TODO (receipts table is Phase 6); SIMULATED connector label kept in events router docstring and app/main.py; events.dedupe_key declared nullable so schema-invalid events lacking source/external_event_id don't break UNIQUE (NULLs ignored by Postgres)"
+        "edit path leaves an event_edited receipt TODO (receipts table is Phase 6); SIMULATED connector label kept in events router docstring and app/main.py; events.dedupe_key declared nullable so schema-invalid events lacking source/external_event_id don't break UNIQUE (NULLs ignored by Postgres)",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ],
       "skills_tools": [],
       "generated_files": [
@@ -95,7 +97,7 @@
         "requirements.txt"
       ],
       "human_modified_files": [],
-      "verification": "pytest against real test Postgres (dsw_test on local socket): 26 passed, 0 failed. malformed\u2192400 not persisted; schema-invalid\u2192200 is_valid=false persisted; exact duplicate\u2192duplicate:true one row; edit\u2192is_edit:true updated no 2nd row; concurrency asyncio.gather \u2192 ['created','duplicate'] one row; direct-insert of same dedupe_key raises IntegrityError proving DB (not app) enforcement; alembic upgrade head + \\d events show events_dedupe_key_key UNIQUE CONSTRAINT",
+      "verification": "pytest against real test Postgres (dsw_test on local socket): 26 passed, 0 failed. malformed→400 not persisted; schema-invalid→200 is_valid=false persisted; exact duplicate→duplicate:true one row; edit→is_edit:true updated no 2nd row; concurrency asyncio.gather → ['created','duplicate'] one row; direct-insert of same dedupe_key raises IntegrityError proving DB (not app) enforcement; alembic upgrade head + \\d events show events_dedupe_key_key UNIQUE CONSTRAINT",
       "export_path": "AI_USAGE.md",
       "costs": []
     },
@@ -111,7 +113,8 @@
         "phase 1 review: docker-compose build + clean up; auto-run alembic upgrade head on boot; show malformed-JSON 400 mechanism; confirm received_at absent-safety; re-run suite via Docker"
       ],
       "notes": [
-        "docker-entrypoint.sh runs alembic upgrade head then uvicorn so fresh containers self-migrate with no manual alembic; MalformedJSONError typed exception handled centrally in main.py returns flat 400 {'error':'malformed_json'} (HTTPException would wrap in {'detail':{...}}); tests kept out of prod image (.dockerignore) so in-container test run binds tests/pytest.ini via volume mount against the compose db service; email-validator confirmed pinned in requirements.txt"
+        "docker-entrypoint.sh runs alembic upgrade head then uvicorn so fresh containers self-migrate with no manual alembic; MalformedJSONError typed exception handled centrally in main.py returns flat 400 {'error':'malformed_json'} (HTTPException would wrap in {'detail':{...}}); tests kept out of prod image (.dockerignore) so in-container test run binds tests/pytest.ini via volume mount against the compose db service; email-validator confirmed pinned in requirements.txt",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ],
       "skills_tools": [],
       "generated_files": [
@@ -140,7 +143,8 @@
         "phase 1 review: isolate test DB from dev DB so the suite's drop/create never stomps manual walkthrough data"
       ],
       "notes": [
-        "docker/init/01-test-db.sql creates dsw_test on the same Postgres instance at first volume init; compose mounts it and adds TEST_DATABASE_URL (default :5432/dsw_test); conftest hard-assigns DATABASE_URL from TEST_DATABASE_URL before app import because setdefault silently kept the container's dev DATABASE_URL=dsw on the first attempt, which let the suite drop dev events - caught in verification and fixed to a hard assignment"
+        "docker/init/01-test-db.sql creates dsw_test on the same Postgres instance at first volume init; compose mounts it and adds TEST_DATABASE_URL (default :5432/dsw_test); conftest hard-assigns DATABASE_URL from TEST_DATABASE_URL before app import because setdefault silently kept the container's dev DATABASE_URL=dsw on the first attempt, which let the suite drop dev events - caught in verification and fixed to a hard assignment",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ],
       "skills_tools": [],
       "generated_files": [
@@ -166,7 +170,8 @@
         "phase 2 prompt: FR-3, identities/identity_links/manual_review_queue tables, Flow 3, identity policy with fuzzy algorithm choice, manual-review resolve endpoint, exact/phone/fuzzy fixtures, force-merge-rejected test, threshold boundary 0.849/0.85/0.851"
       ],
       "notes": [
-        "fuzzy algorithm = deterministic stdlib difflib.SequenceMatcher.ratio over lowercase display-name tokens, documented in identity_policy_v1.json; confidence_threshold 0.85 in the policy file, not hardcoded; below-threshold builds a manual_review_queue row and the event pipeline halts there; on review resolution the event is linked to the chosen identity (interpret/score/act are future phases); debugged: identity.id was None until flush (Python-side uuid default) so links are created after db.flush(); SQLAlchemy python-side uuid default; test fixtures initially used zero-similarity names which correctly hit the create-fresh path, fixed to shared-token ambiguous names that hit the review path"
+        "fuzzy algorithm = deterministic stdlib difflib.SequenceMatcher.ratio over lowercase display-name tokens, documented in identity_policy_v1.json; confidence_threshold 0.85 in the policy file, not hardcoded; below-threshold builds a manual_review_queue row and the event pipeline halts there; on review resolution the event is linked to the chosen identity (interpret/score/act are future phases); debugged: identity.id was None until flush (Python-side uuid default) so links are created after db.flush(); SQLAlchemy python-side uuid default; test fixtures initially used zero-similarity names which correctly hit the create-fresh path, fixed to shared-token ambiguous names that hit the review path",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ],
       "skills_tools": [],
       "generated_files": [
@@ -200,7 +205,8 @@
         "phase 2 review: protect identity resolution from the same SELECT->INSERT race Phase 1 fixed for events; partial unique index on primary_email/primary_phone; catch IntegrityError in exact branches and link to the winner; email+phone concurrency tests"
       ],
       "notes": [
-        "partial unique indexes (WHERE col IS NOT NULL) let multiple NULLs coexist while making same email/phone insert impossible at the DB level; _link_via_exact helper catches IntegrityError, rolls back, re-SELECTs winner's identity and links to it, mirroring ingest.create_event; defect found: after rollback the event ORM object is expired and lazy re-read of event.id raised MissingGreenlet in async SQLAlchemy - fixed by capturing stable event_id before flush/rollback; also discovered the app image was stale (built in Phase 1, lacking 0002/0003) so the in-container entrypoint could not see newer revisions until docker compose build"
+        "partial unique indexes (WHERE col IS NOT NULL) let multiple NULLs coexist while making same email/phone insert impossible at the DB level; _link_via_exact helper catches IntegrityError, rolls back, re-SELECTs winner's identity and links to it, mirroring ingest.create_event; defect found: after rollback the event ORM object is expired and lazy re-read of event.id raised MissingGreenlet in async SQLAlchemy - fixed by capturing stable event_id before flush/rollback; also discovered the app image was stale (built in Phase 1, lacking 0002/0003) so the in-container entrypoint could not see newer revisions until docker compose build",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ],
       "skills_tools": [],
       "generated_files": [
@@ -227,7 +233,8 @@
         "phase 3 prompt: FR-4 interpretation stage; real LIVE OpenRouter call; tenant minimum-length LLM skip; temperature 0 + recorded model/prompt versions; tenacity bounded retry; model deviation to DeepSeek V4 Flash; short-text spy test + provider-failure test + one real LIVE test"
       ],
       "notes": [
-        "REAL PAID API CALL - approved in writing by Krishnam via Rajat (PRD 9). Model deviation from PRD example anthropic/claude-haiku-4.5 to deepseek/deepseek-v4-flash (much cheaper, ~$0.089/M prompt $0.177/M completion); FR-4 and interpretations.model_version are model-agnostic so no PRD change, only disclosure. Identifier confirmed against OpenRouter live model list. Tuning: max_tokens needed >=200 because v4-flash emits reasoning tokens that truncated a smaller budget mid-JSON; JSON parse made robust (extract first-to-last JSON object). Sparked local .env CLASSIFICATION_MODEL update from claude-haiku to deepseek-v4-flash. interpretations.event_id UNIQUE means edits must upsert, not insert."
+        "REAL PAID API CALL - approved in writing by Krishnam via Rajat (PRD 9). Model deviation from PRD example anthropic/claude-haiku-4.5 to deepseek/deepseek-v4-flash (much cheaper, ~$0.089/M prompt $0.177/M completion); FR-4 and interpretations.model_version are model-agnostic so no PRD change, only disclosure. Identifier confirmed against OpenRouter live model list. Tuning: max_tokens needed >=200 because v4-flash emits reasoning tokens that truncated a smaller budget mid-JSON; JSON parse made robust (extract first-to-last JSON object). Sparked local .env CLASSIFICATION_MODEL update from claude-haiku to deepseek-v4-flash. interpretations.event_id UNIQUE means edits must upsert, not insert.",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ],
       "skills_tools": [],
       "generated_files": [
@@ -270,7 +277,8 @@
         "phase 3 review: widen retry to real openai SDK exceptions (APITimeoutError/RateLimitError/APIConnectionError/InternalServerError) not RuntimeError; keep 401/bad-key fail-fast; API key rotation security note; clean confusing cost wording"
       ],
       "notes": [
-        "retry only transient failures via _is_retryable(): InterpretError (bad-JSON parse), openai.APIConnectionError (covers timeout), openai.APIStatusError when status 429 or >=500; NOT AuthenticationError/other 4xx (config problem, fail fast). Key rotation occurred this phase - prior key value never committed or left in tracked files, only git-ignored .env and throwaway (uncommitted) debug scripts; standing rule added: never hardcode a real key, always read from env. Removed unused Interpretation import in events.py. Cost phrasing cleaned to unambiguous 212 tokens = $0.000026 total. New test exception constructors use httpx.Response because openai SDK errors read status_code off the response."
+        "retry only transient failures via _is_retryable(): InterpretError (bad-JSON parse), openai.APIConnectionError (covers timeout), openai.APIStatusError when status 429 or >=500; NOT AuthenticationError/other 4xx (config problem, fail fast). Key rotation occurred this phase - prior key value never committed or left in tracked files, only git-ignored .env and throwaway (uncommitted) debug scripts; standing rule added: never hardcode a real key, always read from env. Removed unused Interpretation import in events.py. Cost phrasing cleaned to unambiguous 212 tokens = $0.000026 total. New test exception constructors use httpx.Response because openai SDK errors read status_code off the response.",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ],
       "skills_tools": [],
       "generated_files": [
@@ -315,7 +323,8 @@
       ],
       "costs": [],
       "notes": [
-        "Scoring pipeline (FR-5): populated app/policies/scoring_policy_v1.json (label_scores incl unknown=null, source_bonus, consent_bonus, campaign_bonus, confidence_multiplier_enabled, decision_thresholds hot70/warm45/cold20, tie_break_rule, insufficient_data_rule); added Score model + Alembic 0005_scores (score nullable, event_id non-unique, ix_scores_event_id); new app/services/score.py (cached _load_policy, compute_score with structural unknown=>null guard, score_event upsert-by-event_id); wired i"
+        "Scoring pipeline (FR-5): populated app/policies/scoring_policy_v1.json (label_scores incl unknown=null, source_bonus, consent_bonus, campaign_bonus, confidence_multiplier_enabled, decision_thresholds hot70/warm45/cold20, tie_break_rule, insufficient_data_rule); added Score model + Alembic 0005_scores (score nullable, event_id non-unique, ix_scores_event_id); new app/services/score.py (cached _load_policy, compute_score with structural unknown=>null guard, score_event upsert-by-event_id); wired i",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
@@ -351,7 +360,8 @@
       ],
       "costs": [],
       "notes": [
-        "Act pipeline (FR-6/FR-7): routing_rules_v1.json (hot_any->sales_urgent 2h, warm_pricing->sales_priority 8h, warm_any->sales_default 24h, needs_review_any->manual_queue 48h, cold_any->nurture 72h; fallback->unassigned/fallback_no_rule/72h); Lead + Route models (leads.identity_id UNIQUE idempotency anchor, routes.rule_matched NOT NULL); Alembic 0006_leads_routes (down_revision 0005_scores, uq_leads_identity_id, ix_leads_status, ix_routes_lead_id); app/services/act.py with pure apply_routing_rule ("
+        "Act pipeline (FR-6/FR-7): routing_rules_v1.json (hot_any->sales_urgent 2h, warm_pricing->sales_priority 8h, warm_any->sales_default 24h, needs_review_any->manual_queue 48h, cold_any->nurture 72h; fallback->unassigned/fallback_no_rule/72h); Lead + Route models (leads.identity_id UNIQUE idempotency anchor, routes.rule_matched NOT NULL); Alembic 0006_leads_routes (down_revision 0005_scores, uq_leads_identity_id, ix_leads_status, ix_routes_lead_id); app/services/act.py with pure apply_routing_rule (",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
@@ -385,7 +395,8 @@
       ],
       "costs": [],
       "notes": [
-        "Attribution pipeline (FR-8): AttributionTouch model (attribution_touches table, UNIQUE on identity_id, first_touch immutable once set, last_touch tracks strictly-later received_at, source+campaign_id denormalized per touch); Alembic 0007_attribution_touches (down_revision 0006_leads_routes, uq_attribution_touches_identity_id, FKs to identities/events, no redundant index since Postgres auto-creates one for the UNIQUE constraint); app/services/attribute.py with upsert_attribution (create path firs"
+        "Attribution pipeline (FR-8): AttributionTouch model (attribution_touches table, UNIQUE on identity_id, first_touch immutable once set, last_touch tracks strictly-later received_at, source+campaign_id denormalized per touch); Alembic 0007_attribution_touches (down_revision 0006_leads_routes, uq_attribution_touches_identity_id, FKs to identities/events, no redundant index since Postgres auto-creates one for the UNIQUE constraint); app/services/attribute.py with upsert_attribution (create path firs",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
@@ -426,7 +437,8 @@
       ],
       "costs": [],
       "notes": [
-        "7a: Receipt model (receipts table; meta mapped to metadata column since metadata is a reserved SQLAlchemy attribute; ix_receipts_action_type + ix_receipts_event_id); Alembic 0008_receipts (down_revision 0007_attribution_touches); app/services/receipts.py write_receipt (asserts VALID_ACTION_TYPES, never commits); wiring into ingest/resolve/manual_review-resolve/interpret/score/act for every mutating action. 7b: app/routers/dashboard.py GET /api/v1/dashboard/reconciliation (7 entity/action pairs, "
+        "7a: Receipt model (receipts table; meta mapped to metadata column since metadata is a reserved SQLAlchemy attribute; ix_receipts_action_type + ix_receipts_event_id); Alembic 0008_receipts (down_revision 0007_attribution_touches); app/services/receipts.py write_receipt (asserts VALID_ACTION_TYPES, never commits); wiring into ingest/resolve/manual_review-resolve/interpret/score/act for every mutating action. 7b: app/routers/dashboard.py GET /api/v1/dashboard/reconciliation (7 entity/action pairs, ",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
@@ -457,7 +469,8 @@
       ],
       "costs": [],
       "notes": [
-        "DEFECT found and fixed, logged separately (not folded into Phase 8 feature list). Bug: routes.lead_id had no UNIQUE constraint (only plain non-unique ix_routes_lead_id); route_lead() inserted a new Route on every act() call, and act() called it even when create_or_update_lead returned lead_op=\"updated\", so a second act() for the same lead (reachable via FR-2 edited-resubmission path) created a SECOND routes row; reachable since Phase 6; found by diagnostic review, not the test suite. Fix: Alembi"
+        "DEFECT found and fixed, logged separately (not folded into Phase 8 feature list). Bug: routes.lead_id had no UNIQUE constraint (only plain non-unique ix_routes_lead_id); route_lead() inserted a new Route on every act() call, and act() called it even when create_or_update_lead returned lead_op=\"updated\", so a second act() for the same lead (reachable via FR-2 edited-resubmission path) created a SECOND routes row; reachable since Phase 6; found by diagnostic review, not the test suite. Fix: Alembi",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
@@ -485,7 +498,8 @@
       ],
       "costs": [],
       "notes": [
-        "SEPARATE DEFECT from S0013 (routes fix) with a distinct root cause, found during the same diagnostic session; logged as its own entry. Bug: the events_created dashboard count filtered on Event.is_valid.is_(True), Event.is_edit.is_(False), treating created/edited as mutually exclusive; but every valid event was created AND some were later ALSO edited (both immutable facts matching event_created / event_edited receipts). When an FR-2 edit flips is_edit to True the row dropped out of events_created"
+        "SEPARATE DEFECT from S0013 (routes fix) with a distinct root cause, found during the same diagnostic session; logged as its own entry. Bug: the events_created dashboard count filtered on Event.is_valid.is_(True), Event.is_edit.is_(False), treating created/edited as mutually exclusive; but every valid event was created AND some were later ALSO edited (both immutable facts matching event_created / event_edited receipts). When an FR-2 edit flips is_edit to True the row dropped out of events_created",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
@@ -495,7 +509,7 @@
       "date": "2026-08-20",
       "human_modified_files": [],
       "summary": "DeadLetterQueue model (table dead_letter_queue: id PK, event_id FK, stage, error, retry_count, resolved default false, created_at); Alembic 0010_dead_letter_queue (down_revision 0009). interpret.py: on retry exhaustion (bounded by _is_retryable) the event is dead-lettered - a dead_letter_queue row (stage=\"interpret\", sanitized/truncated error <=500 chars, retry_count=actual attempts) plus a dead_lettered receipt in a SINGLE commit (FR-9 atomicity), replacing the previous interpreted/status=error receipt. Per-attempt backoffs logged via structlog, not receipted. Retry config env-configurable: retry_max_attempts (default 3) and retry_base_delay_ms (default 500) from RETRY_MAX_ATTEMPTS/RETRY_BASE_DELAY_MS. events.py + schemas/responses.py: exhaustion returns status=\"dead_letter\", stage=\"interpret\"; pipeline halts (confirmed short-circuit already prevented score/act). dashboard.py: added dead_letter_queue reconciliation pair (dead_letter_queue <-> dead_lettered). Finding: \"error\" is never used as an action_type anywhere (only as a status); retiring error-as-action_type was a no-op; exhaustion receipt uses action_type=\"dead_lettered\", status=\"error\". Decision: dead_letter_queue IS a reconciliation pair (row vs dead_lettered receipt, written atomically 1:1) added deliberately and disclosed.",
-      "verification": "New tests tests/integration/test_dead_letter.py: (1) exhaustion test mocking openai.APITimeoutError with retry_max_attempts=3 asserts EXACTLY 3 attempts, one DLQ row (stage=interpret, retry_count=3, resolved=false), one dead_lettered receipt, NO interpreted/status=error receipt, no fabricated unknown interpretation, no score/lead/route rows (pipeline halted); API status=\"dead_letter\", stage=\"interpret\". (2) retry-budget test retry_max_attempts=1 -> exactly 1 attempt, retry_count=1. Dead-letter tests 2 passed; reconciliation file 6 passed (new pair variance 0); full suite 94 passed, 1 skipped locally and in-container. Addendum (PRD-conformance fix caught in review): dead-letter POST /events now returns 202 (was 200) per PRD \u00a74 Error States, via injected Response setting status_code=202 on the dead-letter branch only; test_exhaustion_dead_letters_event_and_halts_pipeline updated to assert 202; full suite still 94 passed, 1 skipped locally and in-container.",
+      "verification": "New tests tests/integration/test_dead_letter.py: (1) exhaustion test mocking openai.APITimeoutError with retry_max_attempts=3 asserts EXACTLY 3 attempts, one DLQ row (stage=interpret, retry_count=3, resolved=false), one dead_lettered receipt, NO interpreted/status=error receipt, no fabricated unknown interpretation, no score/lead/route rows (pipeline halted); API status=\"dead_letter\", stage=\"interpret\". (2) retry-budget test retry_max_attempts=1 -> exactly 1 attempt, retry_count=1. Dead-letter tests 2 passed; reconciliation file 6 passed (new pair variance 0); full suite 94 passed, 1 skipped locally and in-container. Addendum (PRD-conformance fix caught in review): dead-letter POST /events now returns 202 (was 200) per PRD §4 Error States, via injected Response setting status_code=202 on the dead-letter branch only; test_exhaustion_dead_letters_event_and_halts_pipeline updated to assert 202; full suite still 94 passed, 1 skipped locally and in-container.",
       "started_at": "2026-08-20T00:00:00Z",
       "ended_at": "2026-08-20T00:00:00Z",
       "provider": "OpenRouter",
@@ -519,7 +533,8 @@
       ],
       "costs": [],
       "notes": [
-        "DeadLetterQueue model (table dead_letter_queue: id PK, event_id FK, stage, error, retry_count, resolved default false, created_at); Alembic 0010_dead_letter_queue (down_revision 0009). interpret.py: on retry exhaustion (bounded by _is_retryable) the event is dead-lettered - a dead_letter_queue row (stage=\"interpret\", sanitized/truncated error <=500 chars, retry_count=actual attempts) plus a dead_lettered receipt in a SINGLE commit (FR-9 atomicity), replacing the previous interpreted/status=error"
+        "DeadLetterQueue model (table dead_letter_queue: id PK, event_id FK, stage, error, retry_count, resolved default false, created_at); Alembic 0010_dead_letter_queue (down_revision 0009). interpret.py: on retry exhaustion (bounded by _is_retryable) the event is dead-lettered - a dead_letter_queue row (stage=\"interpret\", sanitized/truncated error <=500 chars, retry_count=actual attempts) plus a dead_lettered receipt in a SINGLE commit (FR-9 atomicity), replacing the previous interpreted/status=error",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
@@ -549,7 +564,8 @@
       ],
       "costs": [],
       "notes": [
-        "app/routers/admin.py (new; mounted in main.py after external routers, matching no-prefix-at-mount convention since each router bakes its own prefix). POST /api/v1/admin/replay/{event_id}: bearer-token gated, re-runs existing pipeline (classify_event -> score_event -> act) by REUSING the service functions; on success marks DLQ row resolved=true, writes a dead_letter_resolved receipt (entity_type=\"dead_letter\"), returns 200 {status: replayed, event_id, lead_id}. POST /api/v1/admin/simulate-failure"
+        "app/routers/admin.py (new; mounted in main.py after external routers, matching no-prefix-at-mount convention since each router bakes its own prefix). POST /api/v1/admin/replay/{event_id}: bearer-token gated, re-runs existing pipeline (classify_event -> score_event -> act) by REUSING the service functions; on success marks DLQ row resolved=true, writes a dead_letter_resolved receipt (entity_type=\"dead_letter\"), returns 200 {status: replayed, event_id, lead_id}. POST /api/v1/admin/simulate-failure",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
@@ -593,7 +609,8 @@
       ],
       "costs": [],
       "notes": [
-        "Audit of Phases 0-8 against PRD v1.2 and the implementation plan, then fixes for every issue found (6 defects reported + a 7th surfaced while fixing). D1 payload_hash not advanced on edit (ingest.py): the column is the stored comparand for future submissions on the same dedupe_key, so the row stayed permanently unequal to its own content - the edited payload re-detected as an edit forever (extra event_edited receipt + redundant interpret/score/act each time, unbounded reconciliation variance) wh"
+        "Audit of Phases 0-8 against PRD v1.2 and the implementation plan, then fixes for every issue found (6 defects reported + a 7th surfaced while fixing). D1 payload_hash not advanced on edit (ingest.py): the column is the stored comparand for future submissions on the same dedupe_key, so the row stayed permanently unequal to its own content - the edited payload re-detected as an edit forever (extra event_edited receipt + redundant interpret/score/act each time, unbounded reconciliation variance) wh",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
@@ -634,13 +651,14 @@
       ],
       "costs": [],
       "notes": [
-        "0012 migration (primary_company, uq_identity_links_event_id, uq_manual_review_queue_event_id, uq_scores_event_id); resolve fuzzy name+company averaged, should_auto_link always false, _upsert_identity_link, _queue_review idempotent, short-circuit on existing link, atomic UPDATE WHERE pending fix for concurrent resolve race (two POST both 200 -> now 200+409); score PG ON CONFLICT upsert; conftest hard-assign ADMIN_API_KEY; 56 PRD black-box tests FR-1..11; 3 initial failures fixed: merge_into dissi"
+        "0012 migration (primary_company, uq_identity_links_event_id, uq_manual_review_queue_event_id, uq_scores_event_id); resolve fuzzy name+company averaged, should_auto_link always false, _upsert_identity_link, _queue_review idempotent, short-circuit on existing link, atomic UPDATE WHERE pending fix for concurrent resolve race (two POST both 200 -> now 200+409); score PG ON CONFLICT upsert; conftest hard-assign ADMIN_API_KEY; 56 PRD black-box tests FR-1..11; 3 initial failures fixed: merge_into dissi",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0019",
       "phase": "9",
-      "phase_name": "Dashboard (Evaluator Tooling, PRD \u00a78)",
+      "phase_name": "Dashboard (Evaluator Tooling, PRD §8)",
       "date": "2026-08-21",
       "human_modified_files": [],
       "summary": "Summarize service (fresh SQL by since/until) + GET /api/v1/dashboard/summary JSON; pages router (Path-resolved templates) GET / ->302 /dashboard, GET /dashboard live reconciliation badge, GET /dashboard/leads + /{id}, GET /dashboard/manual-review with Forms POST to /dashboard/manual-review/{id}/resolve (atomic resolve + run_downstream ->303), GET /dashboard/dead-letter; base.html semantic <table><nav> with SIMULATED/LIVE + Eval ID; 12 tests for JSON keys, HTML <table>/<nav>/badge, counts, redirect, leads filter/detail 404, manual-review queue+form, dead-letter + replay_url + resolved filter, static CSS.",
@@ -671,16 +689,17 @@
       ],
       "costs": [],
       "notes": [
-        "Summarize service (fresh SQL by since/until) + GET /api/v1/dashboard/summary JSON; pages router (Path-resolved templates) GET / ->302 /dashboard, GET /dashboard live reconciliation badge, GET /dashboard/leads + /{id}, GET /dashboard/manual-review with Forms POST to /dashboard/manual-review/{id}/resolve (atomic resolve + run_downstream ->303), GET /dashboard/dead-letter; base.html semantic <table><nav> with SIMULATED/LIVE + Eval ID; 12 tests for JSON keys, HTML <table>/<nav>/badge, counts, redire"
+        "Summarize service (fresh SQL by since/until) + GET /api/v1/dashboard/summary JSON; pages router (Path-resolved templates) GET / ->302 /dashboard, GET /dashboard live reconciliation badge, GET /dashboard/leads + /{id}, GET /dashboard/manual-review with Forms POST to /dashboard/manual-review/{id}/resolve (atomic resolve + run_downstream ->303), GET /dashboard/dead-letter; base.html semantic <table><nav> with SIMULATED/LIVE + Eval ID; 12 tests for JSON keys, HTML <table>/<nav>/badge, counts, redire",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0020",
       "phase": "10",
-      "phase_name": "Full Integration Sweep (PRD \u00a711)",
+      "phase_name": "Full Integration Sweep (PRD §11)",
       "date": "2026-08-21",
       "human_modified_files": [],
-      "summary": "Fixtures 10+8+10 events covering clear positives/negatives, ambiguous, duplicates, edits, short-text, provider-failure per evaluator pack + generate_and_post.py SIMULATED seeder; test_phase10_sweep 12 tests for 9 E2E flows (happy per source x3, duplicate concurrency 1 lead, edit vs duplicate receipts, manual-review BOTH receipts + resume, provider failure 3 retries ->202 -> visible -> replay 409, out-of-order attribution, hand-computed reconciliation variance 0, perf single 72ms<3000 summary 23ms recon 20ms HTML 32ms <1000 for 500 events, fixtures existence); test_phase10_acceptance_coverage maps 11 PRD \u00a710 rows + 5 evaluator groups all covered; clean_run.sh DROP/CREATE + time pytest 28s <300s. No feature code added except bug fix already in S0018.",
+      "summary": "Fixtures 10+8+10 events covering clear positives/negatives, ambiguous, duplicates, edits, short-text, provider-failure per evaluator pack + generate_and_post.py SIMULATED seeder; test_phase10_sweep 12 tests for 9 E2E flows (happy per source x3, duplicate concurrency 1 lead, edit vs duplicate receipts, manual-review BOTH receipts + resume, provider failure 3 retries ->202 -> visible -> replay 409, out-of-order attribution, hand-computed reconciliation variance 0, perf single 72ms<3000 summary 23ms recon 20ms HTML 32ms <1000 for 500 events, fixtures existence); test_phase10_acceptance_coverage maps 11 PRD §10 rows + 5 evaluator groups all covered; clean_run.sh DROP/CREATE + time pytest 28s <300s. No feature code added except bug fix already in S0018.",
       "verification": "pytest test_phase10_sweep 12 passed in 10.51s, full 221 passed 1 skipped in 24.70s, perf single 72.23ms<3000 summary 22.95ms recon 19.75ms HTML 32.06ms <1000, clean run 28s real 26.74 <300s PASS docker compose config OK, ruff clean, compileall clean, fixtures valid JSON, acceptance all covered.",
       "started_at": "2026-08-21T00:00:00Z",
       "ended_at": "2026-08-21T00:00:00Z",
@@ -705,7 +724,8 @@
       ],
       "costs": [],
       "notes": [
-        "Fixtures 10+8+10 events covering clear positives/negatives, ambiguous, duplicates, edits, short-text, provider-failure per evaluator pack + generate_and_post.py SIMULATED seeder; test_phase10_sweep 12 tests for 9 E2E flows (happy per source x3, duplicate concurrency 1 lead, edit vs duplicate receipts, manual-review BOTH receipts + resume, provider failure 3 retries ->202 -> visible -> replay 409, out-of-order attribution, hand-computed reconciliation variance 0, perf single 72ms<3000 summary 23m"
+        "Fixtures 10+8+10 events covering clear positives/negatives, ambiguous, duplicates, edits, short-text, provider-failure per evaluator pack + generate_and_post.py SIMULATED seeder; test_phase10_sweep 12 tests for 9 E2E flows (happy per source x3, duplicate concurrency 1 lead, edit vs duplicate receipts, manual-review BOTH receipts + resume, provider failure 3 retries ->202 -> visible -> replay 409, out-of-order attribution, hand-computed reconciliation variance 0, perf single 72ms<3000 summary 23m",
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
     },
     {
@@ -734,7 +754,9 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0023",
@@ -762,15 +784,17 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0024",
-      "phase": "Fix 3 - Lower interpret_min_tokens 8\u21922",
-      "phase_name": "Fix 3 - Lower interpret_min_tokens 8\u21922",
+      "phase": "Fix 3 - Lower interpret_min_tokens 8→2",
+      "phase_name": "Fix 3 - Lower interpret_min_tokens 8→2",
       "date": "2026-08-26",
       "human_modified_files": [],
-      "summary": "config.py default 8\u21922 with noise-vs-intent doc; .env.example adds INTERPRET_MIN_TOKENS comment; README 4 places 8\u21922 + cost rationale; test_prd_edge_cases 7-token skip \u2192 hi, edge_get_events >=8\u2192>=2, test_score_event comment, test_ingest_events/manual_review_api add mocks for 5/3-word messages now hitting LLM; test_fix3_threshold_proof 2 tests (want a quote 3w + i am interested... 7w calls LLM, hi 1w still skipped) fail before pass after.",
+      "summary": "config.py default 8→2 with noise-vs-intent doc; .env.example adds INTERPRET_MIN_TOKENS comment; README 4 places 8→2 + cost rationale; test_prd_edge_cases 7-token skip → hi, edge_get_events >=8→>=2, test_score_event comment, test_ingest_events/manual_review_api add mocks for 5/3-word messages now hitting LLM; test_fix3_threshold_proof 2 tests (want a quote 3w + i am interested... 7w calls LLM, hi 1w still skipped) fail before pass after.",
       "verification": "test_fix3_threshold_proof 2 passed after (before would skip 3/7w); full suite 228 passed 1 skipped; test_interpret 4 passed 1 skipped unchanged for noise case",
       "started_at": "2026-08-26T00:00:00Z",
       "ended_at": "2026-08-26T00:00:00Z",
@@ -795,15 +819,17 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0025",
-      "phase": "Fix 4 - write_receipt assert \u2192 ValueError",
-      "phase_name": "Fix 4 - write_receipt assert \u2192 ValueError",
+      "phase": "Fix 4 - write_receipt assert → ValueError",
+      "phase_name": "Fix 4 - write_receipt assert → ValueError",
       "date": "2026-08-26",
       "human_modified_files": [],
-      "summary": "receipts.py assert \u2192 if raise ValueError (survives python -O), docstring/header updated; grep no AssertionError test; test_fix4_receipt_proof 2 tests (invalid raises ValueError, valid ok) fail before (AssertionError) pass after, verified python -O.",
+      "summary": "receipts.py assert → if raise ValueError (survives python -O), docstring/header updated; grep no AssertionError test; test_fix4_receipt_proof 2 tests (invalid raises ValueError, valid ok) fail before (AssertionError) pass after, verified python -O.",
       "verification": "test_fix4_receipt_proof 1 failed before (AssertionError), 2 passed after incl -O; full suite 230 passed 1 skipped",
       "started_at": "2026-08-26T00:00:00Z",
       "ended_at": "2026-08-26T00:00:00Z",
@@ -822,7 +848,9 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0026",
@@ -830,7 +858,7 @@
       "phase_name": "Fix 5 - Identity policy JSON self-contradiction",
       "date": "2026-08-26",
       "human_modified_files": [],
-      "summary": "identity_policy_v1.json fuzzy_name_company requires [name,company] \u2192 requires [name], optional [company] to match code (fuzzy_similarity company optional); grep resolve.py confirms no code reads requires (purely descriptive); test_fix5_policy_proof 1 test asserts requires==[name] and optional company.",
+      "summary": "identity_policy_v1.json fuzzy_name_company requires [name,company] → requires [name], optional [company] to match code (fuzzy_similarity company optional); grep resolve.py confirms no code reads requires (purely descriptive); test_fix5_policy_proof 1 test asserts requires==[name] and optional company.",
       "verification": "test_fix5_policy_proof 1 failed before ([name,company]), 1 passed after; full suite 231 passed 1 skipped",
       "started_at": "2026-08-26T00:00:00Z",
       "ended_at": "2026-08-26T00:00:00Z",
@@ -849,7 +877,9 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0027",
@@ -876,7 +906,9 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0028",
@@ -884,7 +916,7 @@
       "phase_name": "Fix 7 - ai-usage top-level provider/model disclosure",
       "date": "2026-08-26",
       "human_modified_files": [],
-      "summary": "Top-level notes was []: added note that top-level provider/model (OpenRouter/deepseek) describe only initial tool, S0018\u2013S0020 used Muse Spark muse-spark-1.2 via Opencode harness, confirmed with Rajat 2026-08-26 via question tool Defer to per-session, least-disruptive additive fix no session removed; test_fix7_ai_usage_proof 2 tests assert notes mentions Muse Spark and per-session and both providers present.",
+      "summary": "Top-level notes was []: added note that top-level provider/model (OpenRouter/deepseek) describe only initial tool, S0018–S0020 used Muse Spark muse-spark-1.2 via Opencode harness, confirmed with Rajat 2026-08-26 via question tool Defer to per-session, least-disruptive additive fix no session removed; test_fix7_ai_usage_proof 2 tests assert notes mentions Muse Spark and per-session and both providers present.",
       "verification": "test_fix7_ai_usage_proof 1 failed before (notes empty), 2 passed after; full suite 234 passed 1 skipped (232+2)",
       "started_at": "2026-08-26T00:00:00Z",
       "ended_at": "2026-08-26T00:00:00Z",
@@ -902,7 +934,9 @@
         "AI_USAGE.md"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0029",
@@ -929,7 +963,9 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0030",
@@ -956,7 +992,9 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0031",
@@ -983,23 +1021,25 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0032",
-      "phase": "10-Fix Audit Sweep \u2014 Summary (Fix 1\u201310, Phase-8-audit style)",
-      "phase_name": "10-Fix Audit Sweep \u2014 Summary (Fix 1\u201310, Phase-8-audit style)",
+      "phase": "10-Fix Audit Sweep — Summary (Fix 1–10, Phase-8-audit style)",
+      "phase_name": "10-Fix Audit Sweep — Summary (Fix 1–10, Phase-8-audit style)",
       "date": "2026-08-26",
       "human_modified_files": [],
-      "summary": "Summary of 10 fixes applied one at a time suite green before next: Fix1 threshold enforcement, Fix2 all validation errors joined, Fix3 8\u21922 threshold + README/.env/docs, Fix4 assert\u2192ValueError, Fix5 policy requires fix, Fix6 README DB URL, Fix7 ai-usage top-level deferred to per-session (Rajat confirmed), Fix8 dead fallback removed, Fix9 unreachable replay check removed, Fix10 simulate duplicate guard; no migration, no unrelated refactors; 17 new proof tests (3+2+2+2+1+1+2+1+1+2) baseline 221\u2192238 passed.",
-      "verification": "Final DATABASE_URL=... pytest -q \u2192 238 passed 1 skipped in ~30s (>=221), >= baseline, live test gated, compileall+ruff clean, no new paid cost, docker compose config OK. Per-fix counts: 224,226,228,230,231,232,234,235,236,238 each green before next.",
+      "summary": "Summary of 10 fixes applied one at a time suite green before next: Fix1 threshold enforcement, Fix2 all validation errors joined, Fix3 8→2 threshold + README/.env/docs, Fix4 assert→ValueError, Fix5 policy requires fix, Fix6 README DB URL, Fix7 ai-usage top-level deferred to per-session (Rajat confirmed), Fix8 dead fallback removed, Fix9 unreachable replay check removed, Fix10 simulate duplicate guard; no migration, no unrelated refactors; 17 new proof tests (3+2+2+2+1+1+2+1+1+2) baseline 221→238 passed.",
+      "verification": "Final DATABASE_URL=... pytest -q → 238 passed 1 skipped in ~30s (>=221), >= baseline, live test gated, compileall+ruff clean, no new paid cost, docker compose config OK. Per-fix counts: 224,226,228,230,231,232,234,235,236,238 each green before next.",
       "started_at": "2026-08-26T00:00:00Z",
       "ended_at": "2026-08-26T00:00:00Z",
       "provider": "Muse Spark",
       "model": "muse-spark-1.2",
       "version": null,
       "prompts_or_hashes": [
-        "10-fix audit sweep Fix 1\u201310"
+        "10-fix audit sweep Fix 1–10"
       ],
       "export_path": "AI_USAGE.md",
       "skills_tools": [],
@@ -1028,7 +1068,9 @@
         "AI_USAGE.md"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all 10 fixes; confirmed Fix 7 via question tool (Defer to per-session), provided next moves (Follow-ups A/B: session-ID alignment S0021 gap + dead-letter DB constraint hardening) and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0033",
@@ -1060,7 +1102,9 @@
         "tests/integration/test_fix10_deadletter_proof.py"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed both follow-ups; confirmed Follow-up A Fix IDs aligned (S0022 Fix1 ... S0031 Fix10, S0032 summary, S0021 gap), provided next moves (S0034 varchar(32) hotfix + python-multipart dep, S0035 edit-of-dead-lettered 500->202 defect) and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0034",
@@ -1088,7 +1132,9 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0035",
@@ -1096,7 +1142,7 @@
       "phase_name": "Defect - Edit of dead-lettered event returns 500 instead of 202 (regression from Follow-up B, live testing catch)",
       "date": "2026-08-27",
       "human_modified_files": [],
-      "summary": "Defect found during live end-to-end testing (edit of a dead-lettered event), not caught by test suite \u2014 regression introduced by Follow-up B (Fix-10 DB constraint). Bug: Follow-up B added partial unique index uq_dead_letter_queue_event_id_unresolved and duplicate_suppressed branch in classify_event that correctly re-raised InterpretError, but the event ORM object becomes expired after await db.rollback() inside that branch. Caller in app/routers/events.py:154 then did str(event.id) after await run_downstream raised, triggering lazy load outside greenlet (MissingGreenlet), which is not InterpretError, so except InterpretError did not catch it and it propagated as 500. Why not caught: suite builds schema via Base.metadata.create_all (bypasses alembic_version) and no test ever did dead-letter -> edit of same external_event_id while provider still failing; existing dead-letter tests use distinct IDs and the replay re-dead-letter test goes through admin.py which does not access event.id after the error. Fix: capture event_id_str = str(event.id) before await run_downstream in events.py and use it in the except dead-letter response; interpret.py duplicate branch already correctly re-raises InterpretError identically to normal path (verified). Also verified manual_review.py and admin.py are not affected (they use resolved[\"event_id\"] or no event.id). Regression: tests/integration/test_fix_deadletter_edit_regression.py (1 test) fails before (MissingGreenlet 500) and passes after (202 dead_letter).",
+      "summary": "Defect found during live end-to-end testing (edit of a dead-lettered event), not caught by test suite — regression introduced by Follow-up B (Fix-10 DB constraint). Bug: Follow-up B added partial unique index uq_dead_letter_queue_event_id_unresolved and duplicate_suppressed branch in classify_event that correctly re-raised InterpretError, but the event ORM object becomes expired after await db.rollback() inside that branch. Caller in app/routers/events.py:154 then did str(event.id) after await run_downstream raised, triggering lazy load outside greenlet (MissingGreenlet), which is not InterpretError, so except InterpretError did not catch it and it propagated as 500. Why not caught: suite builds schema via Base.metadata.create_all (bypasses alembic_version) and no test ever did dead-letter -> edit of same external_event_id while provider still failing; existing dead-letter tests use distinct IDs and the replay re-dead-letter test goes through admin.py which does not access event.id after the error. Fix: capture event_id_str = str(event.id) before await run_downstream in events.py and use it in the except dead-letter response; interpret.py duplicate branch already correctly re-raises InterpretError identically to normal path (verified). Also verified manual_review.py and admin.py are not affected (they use resolved[\"event_id\"] or no event.id). Regression: tests/integration/test_fix_deadletter_edit_regression.py (1 test) fails before (MissingGreenlet 500) and passes after (202 dead_letter).",
       "verification": "Before fix: test_edit_of_dead_lettered_event_still_returns_202_not_500 -> FAILED MissingGreenlet (500). After fix: 1 passed; full suite 242 passed 1 skipped (was 241, +1 new). Verified duplicate_suppressed branch still raises InterpretError identically (git show). Code trace confirms only ingest edit path was affected.",
       "started_at": "2026-08-27T00:00:00Z",
       "ended_at": "2026-08-27T00:00:00Z",
@@ -1115,7 +1161,9 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0036",
@@ -1123,7 +1171,7 @@
       "phase_name": "Feature - Groq as second selectable LLM provider (additive, not a defect fix)",
       "date": "2026-08-27",
       "human_modified_files": [],
-      "summary": "Additive multi-provider support for LIVE interpretation: app/config.py added llm_provider (openrouter|groq, default openrouter) and groq_api_key (separate from openrouter_api_key, no startup fail-fast; fails at call time if groq selected and blank, mirroring openrouter). app/services/interpret.py added GROQ_BASE_URL https://api.groq.com/openai/v1, branched _InterpretClient.get_client() on llm_provider (openrouter: OPENROUTER_BASE_URL + openrouter_api_key + HTTP-Referer/X-Title; groq: GROQ_BASE_URL + groq_api_key + no headers; else RuntimeError Unknown llm_provider), and handled Groq temperature quirk in _call_llm (1e-8 for groq vs 0 for openrouter, with code comment citing Groq OpenAI-compatibility docs that 0 auto-converts to 1e-8 but sent explicitly to avoid 400). CLASSIFICATION_LABEL stays single source (caller sets Groq-shaped model like llama-3.3-70b-versatile). .env.example added LLM_PROVIDER=openrouter and GROQ_API_KEY= (console.groq.com note); docker-compose.yml added LLM_PROVIDER and GROQ_API_KEY with ${VAR:-default} and comment about Groq model IDs. README LIVE/SIMULATED header/table updated to OpenRouter or Groq selectable (real disclosed choice, not silently defaulted) with separate Groq key note and temperature 0/1e-8; Cost & Limits added Groq bullet as not yet measured (per convention) and explicit statement mentions both providers and no live Groq call. Tests: tests/unit/test_llm_provider.py 7 unit tests (openrouter base_url/key/headers, groq base_url/key no headers, groq/openrouter missing key at call time, invalid provider error, _call_llm temperature 0 for openrouter and 1e-8 for groq) mocked, no live Groq call. Verified openrouter default path byte-for-byte identical (base_url/headers/temperature) \u2014 strict backward compatibility.",
+      "summary": "Additive multi-provider support for LIVE interpretation: app/config.py added llm_provider (openrouter|groq, default openrouter) and groq_api_key (separate from openrouter_api_key, no startup fail-fast; fails at call time if groq selected and blank, mirroring openrouter). app/services/interpret.py added GROQ_BASE_URL https://api.groq.com/openai/v1, branched _InterpretClient.get_client() on llm_provider (openrouter: OPENROUTER_BASE_URL + openrouter_api_key + HTTP-Referer/X-Title; groq: GROQ_BASE_URL + groq_api_key + no headers; else RuntimeError Unknown llm_provider), and handled Groq temperature quirk in _call_llm (1e-8 for groq vs 0 for openrouter, with code comment citing Groq OpenAI-compatibility docs that 0 auto-converts to 1e-8 but sent explicitly to avoid 400). CLASSIFICATION_LABEL stays single source (caller sets Groq-shaped model like llama-3.3-70b-versatile). .env.example added LLM_PROVIDER=openrouter and GROQ_API_KEY= (console.groq.com note); docker-compose.yml added LLM_PROVIDER and GROQ_API_KEY with ${VAR:-default} and comment about Groq model IDs. README LIVE/SIMULATED header/table updated to OpenRouter or Groq selectable (real disclosed choice, not silently defaulted) with separate Groq key note and temperature 0/1e-8; Cost & Limits added Groq bullet as not yet measured (per convention) and explicit statement mentions both providers and no live Groq call. Tests: tests/unit/test_llm_provider.py 7 unit tests (openrouter base_url/key/headers, groq base_url/key no headers, groq/openrouter missing key at call time, invalid provider error, _call_llm temperature 0 for openrouter and 1e-8 for groq) mocked, no live Groq call. Verified openrouter default path byte-for-byte identical (base_url/headers/temperature) — strict backward compatibility.",
       "verification": "Code trace: llm_provider=openrouter with no other config -> identical base_url=OPENROUTER_BASE_URL, api_key=openrouter_api_key, headers {HTTP-Referer, X-Title}, temperature 0. Existing mocked tests still pass unchanged. pytest tests/unit/test_llm_provider.py -v -> 7 passed; pytest -q -> 249 passed 1 skipped (was 242, +7 new). No live Groq call (mocked only). compileall clean.",
       "started_at": "2026-08-27T00:00:00Z",
       "ended_at": "2026-08-27T00:00:00Z",
@@ -1131,7 +1179,7 @@
       "model": "muse-spark-1.2",
       "version": null,
       "prompts_or_hashes": [
-        "Add Groq as a SECOND, selectable LLM provider for the interpretation stage, alongside the existing OpenRouter integration \u2014 do not remove or replace OpenRouter, it stays as one working option. The person switches between them via config. Both use the OpenAI-compatible chat completions API, so this is a provider-abstraction change, not a rewrite of the classification logic itself."
+        "Add Groq as a SECOND, selectable LLM provider for the interpretation stage, alongside the existing OpenRouter integration — do not remove or replace OpenRouter, it stays as one working option. The person switches between them via config. Both use the OpenAI-compatible chat completions API, so this is a provider-abstraction change, not a rewrite of the classification logic itself."
       ],
       "export_path": "AI_USAGE.md",
       "skills_tools": [],
@@ -1146,7 +1194,9 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0037",
@@ -1162,7 +1212,7 @@
       "model": "muse-spark-1.2",
       "version": null,
       "prompts_or_hashes": [
-        "Documentation-and-packaging sweep to bring Project 02 to submission readiness. No functional/pipeline code changes in this task \u2014 only documentation, disclosure files, and evidence packaging."
+        "Documentation-and-packaging sweep to bring Project 02 to submission readiness. No functional/pipeline code changes in this task — only documentation, disclosure files, and evidence packaging."
       ],
       "export_path": "AI_USAGE.md",
       "skills_tools": [],
@@ -1176,7 +1226,9 @@
         "docs/Submission_Checklist.md"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     },
     {
       "session_id": "DAXVORA-RAJAT-2026-08-A01-S0038",
@@ -1203,7 +1255,9 @@
         "ai-usage.json"
       ],
       "costs": [],
-      "notes": []
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     }
   ]
 }

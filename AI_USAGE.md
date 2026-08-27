@@ -85,7 +85,7 @@ this file is `ai-usage.json`.
 - **What is still a placeholder:** `event_edited` receipt is a TODO (receipts
   table is Phase 6 — edit detected + row updated now); no pipeline beyond ingest
   (resolve/interpret/score/act are later phases).
-- **Human review / changes:** pending Rajat review this session.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** `pytest` against a real test Postgres (`dsw_test` on the local
   socket) — **26 passed, 0 failed**. Malformed JSON→400 not persisted; valid-JSON-
   fails-schema→200 `is_valid=false` persisted; exact duplicate→no-op with
@@ -172,7 +172,7 @@ this file is `ai-usage.json`.
 - **What is still a placeholder:** on resolution the pipeline "resumes" by linking
   the event to the chosen identity, but interpret/score/act do not exist yet
   (Phases 3–5); `review_resolved` receipt is Phase 6.
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** `pytest` against real test Postgres — **50 passed, 0 failed**.
   Exact email/phone auto-link (and same email reuses one identity); fuzzy
   above-threshold (identical "Ada Lovelace") auto-links to the same identity;
@@ -250,7 +250,7 @@ this file is `ai-usage.json`.
 - **What is still a placeholder:** dead-letter integration is Phase 8; on provider
   failure today the response carries `interpret_status=error` (visible) rather
   than writing a `dead_letter_queue` row.
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** full suite **54 passed, 1 skipped** (the one `live`-marked
   test requires `RUN_LIVE_INTERPRET_TEST=1` + a real key, so it's gated off by
   default per cost discipline). Short-text test uses a spy on `_call_llm` and
@@ -319,7 +319,7 @@ this file is `ai-usage.json`.
     `score` / `decision` / `score_id`.
 - **What is still a placeholder:** `score_event` does NOT write a `receipts` row
   (receipts table is Phase 6/7; reconciliation is Phase 7).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** `pytest tests/unit/test_scoring_policy.py
   tests/integration/test_score_event.py -v` → **8 passed**. Full suite →
   **64 passed, 1 skipped** (target 64+1; live test gated). In-container suite
@@ -362,7 +362,7 @@ this file is `ai-usage.json`.
   `act()` — Phase 7 adds the actual write inside the same commit block without
   restructuring the transaction. `escalated` is computed-on-read for v1 (no
   scheduler).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** `pytest tests/unit/test_routing_rules.py
   tests/integration/test_act.py -v` → **11 passed**. Full suite →
   **75 passed, 1 skipped** (target 75+1). In-container suite against isolated
@@ -400,7 +400,7 @@ this file is `ai-usage.json`.
 - **What is still a placeholder:** the receipts table is Phase 7 (the TODO stub
   inside `act()` remains; reconciliation is Phase 7). `escalated` stays
   computed-on-read for v1.
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** `pytest tests/integration/test_attribution.py -v` →
   **7 passed**. Full suite → **82 passed, 1 skipped** (target 82+1). In-container
   suite against isolated dsw_test → **82 passed, 1 skipped**. Migration applied to
@@ -439,7 +439,7 @@ this file is `ai-usage.json`.
 - **What is still a placeholder:** `dead_lettered` is in VALID_ACTION_TYPES but
   not wired anywhere — Phase 8 will add it. `escalated` is computed-on-read for
   v1 (no scheduler).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** 5 reconciliation + 2 logging-compliance tests →
   **7 new passed** (test_reconciliation_variance_zero_on_full_seeded_run is the
   hard pass/fail: overall_status="ok", total_variance=0, every entry variance=0).
@@ -934,7 +934,7 @@ triggers the LIVE call, and a migration note for `0011`.
   - `app/services/resolve.py` — `resolve_identity` now loads `confidence_threshold` from `identity_policy_v1.json` via `_load_policy()` ( `Decimal(str(policy["confidence_threshold"]))` ) and compares the computed `fuzzy_similarity` score against it. If `score < threshold`, the event is still queued for manual review but with `candidate_identity_id=None` and `reason="no_confident_fuzzy_candidate"` instead of proposing the low-confidence identity. If `score >= threshold`, behavior unchanged (candidate proposed with `fuzzy_name_company_manual_review:{score}`). `should_auto_link` still unconditionally returns `False` — fuzzy never auto-merges, only the suggested candidate changes.
   - `tests/integration/test_resolve_identity.py` — updated `test_fuzzy_below_threshold_goes_to_manual_review` to assert `candidate_identity_id is None` and `reason == "no_confident_fuzzy_candidate"` for the `Ada Lovelace` vs `Ada Rutherford` (0.50 < 0.85) case, matching the new contract.
   - `tests/integration/test_fix1_threshold_proof.py` (new) — 3 tests that fail before the fix and pass after: `0.10 → None` (below), `0.85 → candidate present` (boundary, `>=`), `0.95 → candidate present` (above), each via `monkeypatch.setattr(resolve_svc, "fuzzy_similarity", lambda: Decimal(...))` and asserting `review_queued` row `candidate_identity_id`/`reason`.
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** proof file `test_fix1_threshold_proof.py` — before fix `0.10` candidate was `UUID(...), reason "fuzzy_name_company_manual_review:0.10"` (1 failed); after fix `None`/`no_confident_fuzzy_candidate` (3 passed). Full suite after fix **224 passed, 1 skipped** (221 baseline + 3 new, no regressions).
 
 ---
@@ -947,7 +947,7 @@ triggers the LIVE call, and a migration note for `0011`.
   - `app/routers/events.py` — `except ValidationError as exc:` now `reason = "; ".join(e["msg"] for e in exc.errors())` instead of `exc.errors()[0]["msg"]`, so every Pydantic error is preserved. Single-error payloads still produce a single message with no trailing separator (identical to before).
   - `app/services/ingest.py` — `persist_invalid_event` docstring updated to document the choice: `invalid_reason` is a semicolon-joined string of all messages (least-disruptive: no new column, no schema change; full joined string stored in `events.invalid_reason` and `event_rejected` receipt metadata, `raw_payload` retains original body). Alternative considered was storing a JSON list in a new field — rejected as more invasive.
   - `tests/integration/test_fix2_validation_proof.py` (new) — 2 tests: `missing external_event_id + invalid email` payload asserts `invalid_reason` contains both errors (split by `;` gives `>=2` parts) and DB row matches; `single-error` payload asserts identical to before (single message, no spurious `;`).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** proof before fix: `invalid_reason == "Field required"` (email missing, 1 failed); after fix `invalid_reason == "Field required; value is not a valid email address: ..."` (2 passed). Full suite **226 passed, 1 skipped** (224 + 2).
 
 ---
@@ -962,7 +962,7 @@ triggers the LIVE call, and a migration note for `0011`.
   - `README.md` — updated all `8`-token references: LIVE/SIMULATED table ("default 2 words — pure noise"), Configuration table (`OPENROUTER_API_KEY` `*` note `<2` / `≥2`), Efficiency savings bullet (`<2` + "want a quote" calls LLM), Troubleshooting (`<2`), Cost explicit statement (`2-token noise-only skip`).
   - `tests/integration/test_prd_edge_cases.py` — `test_fr4_seven_tokens_still_unknown_and_no_llm` now uses `SHORT_MSG ("hi")` (1 word) to demonstrate a genuine skip under the new threshold; `test_edge_get_events_returns_score_features_and_policy` comment `>=8` → `>=2`. `tests/integration/test_score_event.py` comment updated similarly. `tests/integration/test_ingest_events.py` (`test_valid_event_created`, `test_edit_updates_row_and_marks_is_edit`) and `tests/integration/test_manual_review_api.py` (`test_manual_review_list_pending_and_resolve`, `test_manual_review_resolve_already_resolved_409`) now `monkeypatch.setattr(interpret._call_llm, _fake)` because their 5-word / 3-word messages now correctly call the LLM (previously they relied on the `8`-word skip to avoid mocking).
   - `tests/integration/test_fix3_threshold_proof.py` (new) — 2 tests: `3-word "want a quote"` and `7-word "i am interested in buying your product"` both assert `spy.assert_called_once()` (not skipped); `1-word "hi"` asserts `spy.assert_not_called()` (still skipped). Mirrors the existing `spy asserts _call_llm never invoked` test but inverted for buying intent.
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** before fix, `7-word` payload was skipped (spy not called) and `3-word` was skipped; after fix both call LLM (2 passed) and `1-word` still skipped. Full suite after fix **228 passed, 1 skipped** (226 + 2).
 
 ---
@@ -975,7 +975,7 @@ triggers the LIVE call, and a migration note for `0011`.
   - `app/services/receipts.py` — replaced `assert action_type in VALID_ACTION_TYPES` (stripped with `python -O`) with `if action_type not in VALID_ACTION_TYPES: raise ValueError(...)`. Docstring and module header updated from "enforced by assertion" to "enforced by ValueError" and note that `ValueError` survives `-O`.
   - Grep of `tests/` confirmed no test relied on `pytest.raises(AssertionError)` for receipts — no updates needed.
   - `tests/integration/test_fix4_receipt_proof.py` (new) — `test_fix4_invalid_action_type_raises_value_error` asserts `ValueError` with `"Unknown action_type"` + `"VALID_ACTION_TYPES"`; `test_fix4_valid_action_type_does_not_raise` sanity. Before fix the first test raised `AssertionError` (1 failed); after fix `ValueError` (2 passed). Verified with `python -O -m pytest tests/integration/test_fix4_receipt_proof.py -v` → both passed (asserts survive `-O`, with pytest warning about missing assert).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** full suite **230 passed, 1 skipped** (228 + 2).
 
 ---
@@ -987,7 +987,7 @@ triggers the LIVE call, and a migration note for `0011`.
 - **What was generated / changed:**
   - `app/policies/identity_policy_v1.json` — `fuzzy_name_company` `"requires": ["name", "company"]` → `"requires": ["name"], "optional": ["company"]` so the file matches the code. `_comment` and `fuzzy_similarity` already treat company as optional (name-only is a reviewer suggestion; ratio averaged only when both companies known). Grep of `app/services/resolve.py` confirms no code reads the `requires` field programmatically — purely descriptive, so no code changes needed.
   - `tests/integration/test_fix5_policy_proof.py` (new) — asserts `policy["rules"]["fuzzy_name_company"]["requires"] == ["name"]` and `"company" in optional`, plus that `resolve.py` source does not contain `"requires"` (confirming purely descriptive).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** before fix `requires == ["name","company"]` (1 failed); after fix `["name"]` + `optional ["company"]` (1 passed). Full suite **231 passed, 1 skipped**.
 
 ---
@@ -999,7 +999,7 @@ triggers the LIVE call, and a migration note for `0011`.
 - **What was generated / changed:**
   - `README.md` Configuration/Env Vars table row for `DATABASE_URL` — was `postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw` (compose) implying a code-level default. Now `""` in code (empty string); effective `postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw` via `docker-compose.yml` `${DATABASE_URL:-...}` when running `docker compose up`. Accurately reflects `app/config.py` `database_url: str = ""` and `docker-compose.yml` environment block.
   - `tests/integration/test_fix6_readme_proof.py` (new) — reads `README.md` and asserts row contains `""`/`empty` and `docker-compose.yml`, plus that `Settings.model_fields["database_url"].default == ""`. Before fix row lacked `empty`/`""` (1 failed); after fix (1 passed).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** full suite **232 passed, 1 skipped**.
 
 ---
@@ -1029,7 +1029,7 @@ triggers the LIVE call, and a migration note for `0011`.
     ```
     This duplicated the `web_form` branch (`message`/`body`) and for `social_mention` only added `message` where schema expects `text`, and for `email_engagement` only added `message`/`body` where schema expects `reply_body` — never a genuinely different path in practice. **Choice:** remove rather than replace, because a genuinely different fallback (e.g., checking `text` for `web_form`) would be speculative and no real gap was observed; the per-source branches already cover the schema's body fields. No-behavior-change cleanup, confirmed by unchanged `test_interpret.py` suite.
   - `tests/integration/test_fix8_extract_proof.py` (new) — asserts source no longer contains `'generic fallback over a few known keys'` and that per-source `if/elif` branches and `return (body or "").strip()` still exist. Before fix comment present (1 failed); after fix gone (1 passed).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** `pytest tests/integration/test_interpret.py -v` → `4 passed, 1 skipped` unchanged. Full suite **235 passed, 1 skipped**.
 
 ---
@@ -1046,7 +1046,7 @@ triggers the LIVE call, and a migration note for `0011`.
     ```
     **Code trace (verified independently, not just from prompt):** `replay_event` calls `run_downstream` → `classify_event`. `classify_event` always either writes an `interpretations` row (skipped `unknown` or LLM success, both `await db.commit()`) and returns `{"status": "interpreted", "interpretation_id": ...}` or raises `InterpretError` (bounded retry exhausted, writes `dead_letter_queue` + `dead_lettered` receipt). `run_downstream` then `SELECT Interpretation WHERE event_id == event.id` and would only be `None` if the write were missing — which never happens on success. No path returns normally with `None`; the check was unreachable and no test ever exercised it. Comment added explaining the trace.
   - `tests/integration/test_fix9_unreachable_proof.py` (new) — asserts source no longer contains `outcome["interpretation"] is None` check, and that `run_downstream`/`InterpretError` still present.
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** before fix check present (1 failed); after fix gone (1 passed). Full suite **236 passed, 1 skipped**.
 
 ---
@@ -1058,7 +1058,7 @@ triggers the LIVE call, and a migration note for `0011`.
 - **What was generated / changed:**
   - `app/routers/admin.py` — `POST /api/v1/admin/simulate-failure` now checks for an existing unresolved `DeadLetterQueue` row for `event_id` before inserting. If one exists, returns `409 {"error": "already_dead_lettered"}` (matching existing `409` pattern `not_dead_lettered`/`ambiguous_identity` in the same file), otherwise inserts as before. Query `SELECT DeadLetterQueue WHERE event_id == event_uuid AND resolved IS False` — after a replay `resolved=true`, a new simulate-failure is allowed.
   - `tests/integration/test_fix10_deadletter_proof.py` (new) — 2 tests: `simulate twice → 200 then 409` with `count unresolved ==1` / `total ==1`; `after replay resolved, simulate again → 200`. Before fix second call returned `200` and created `2` rows (1 failed); after fix `409`/`already_dead_lettered` (2 passed).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:** full suite **238 passed, 1 skipped** (236 + 2, baseline 221).
 
 ---
@@ -1080,7 +1080,7 @@ triggers the LIVE call, and a migration note for `0011`.
   - **Fix 10** `admin.py` — `simulate-failure` guard: `SELECT ... WHERE resolved=False` before insert → `409 already_dead_lettered` matching existing `not_dead_lettered` pattern; new `test_fix10_deadletter_proof.py` (2).
   - No Alembic migration needed (all 10 are logic/doc fixes, no schema change — per instructions "if a fix requires a migration, add one; do not hand-edit models.py without a matching migration" — none required).
   - No unrelated refactors.
-- **Human review / changes:** Rajat confirmed Fix 7 via `question` tool; other fixes pending review. Each fix was applied in order, with a failing-before / passing-after proof test and a full `pytest -q` green before proceeding (counts below).
+- **Human review / changes:** Rajat reviewed all 10 fixes; confirmed Fix 7 via `question` tool ("Defer to per-session"), provided next moves (Follow-ups A/B: session-ID alignment `S0021` gap + dead-letter DB constraint hardening) and approved moving to next phase. Each fix was applied in order, with a failing-before / passing-after proof test and a full `pytest -q` green before proceeding (counts below).
 - **Verification (final, after all 10):**
   - `DATABASE_URL=postgresql+asyncpg://rajatthakral@/dsw_test?host=/tmp pytest -q` → **238 passed, 1 skipped in ~30s** (baseline 221 → +17 new proof tests, `>=221` satisfied). Live test still gated (`RUN_LIVE_INTERPRET_TEST=1`). `python -m compileall` clean, `ruff` clean (no F401). Per-fix counts: Fix1 224, Fix2 226, Fix3 228, Fix4 230, Fix5 231, Fix6 232, Fix7 234, Fix8 235, Fix9 236, Fix10 238 — each `pytest -q` green before next.
   - No new paid OpenRouter cost (all LLM paths mocked via `interpret._call_llm` `AsyncMock`).
@@ -1096,7 +1096,7 @@ triggers the LIVE call, and a migration note for `0011`.
 - **What was generated / changed (both follow-ups, in order, suite green before each next):**
   - **Follow-up A — Align ai-usage.json to AI_USAGE.md:** `AI_USAGE.md` had merged `S0018+S0019` into one markdown entry (historical), while `ai-usage.json` kept them as two separate JSON entries — the one-ID offset cascaded into the 10 fix IDs (`S0021` vs `S0022` for Fix1 … `S0031` vs `S0032` for summary). Bumped all 11 new JSON entries up by one (`S0021→S0022` Fix1 … `S0031→S0032` summary) to match `AI_USAGE.md` exactly. Left `S0021` explicitly unused/skipped in `ai-usage.json` (do not reuse) and added a one-line top-level `notes` entry explaining the gap: "S0021 is intentionally skipped … Fix1=S0022 … summary=S0032 in both files after the 2026-08-26 follow-up". Did **not** renumber or touch any session before `S0021` in either file. Verified via `grep -n "session_id" ai-usage.json` / `grep -n "Session ID" AI_USAGE.md` — no duplicates in either file, `S0021` missing in JSON (gap) and present in MD (Phase10), and all 10 fixes + summary now agree (`S0022` Fix1 … `S0032` summary in both).
   - **Follow-up B — Close simulate-failure race with DB constraint:** Added `app/db/migrations/versions/0013_dead_letter_unresolved_unique.py` (`revision 0013_dead_letter_unresolved_unique`, `down_revision 0012_phase8_integrity_hardening`) — partial unique index `uq_dead_letter_queue_event_id_unresolved` on `dead_letter_queue(event_id)` `WHERE resolved = false`, mirroring `0003`'s `uq_identities_primary_email` (`postgresql_where=sa.text("resolved = false")`). Deduplicates legacy duplicate unresolved rows (keep oldest per `event_id`, `DELETE ... WHERE duplicate.id > kept.id`). Added matching `Index(...)` to `DeadLetterQueue.__table_args__` in `app/db/models.py:374` (same pattern as `Event`/`Identity`). Updated `app/routers/admin.py:152` `simulate_failure` to keep the fast `SELECT` guard for the friendly `409`, but also wrap the `INSERT` (`db.add`/`flush`/`write_receipt`/`commit`) in `try/except IntegrityError` → `rollback` → `409 {"error":"already_dead_lettered"}` (same pattern as `resolve.py:_link_via_exact` and `act.py:create_or_update_lead`; no need to re-read winner row since response is just `409`). Also hardened `app/services/interpret.py:312` dead-letter path (replay re-dead-letter) to catch `IntegrityError` on the same index (sequential replay after simulate would otherwise create a second unresolved row → `500`), log `interpret_dead_lettered_duplicate_suppressed` and still raise `InterpretError` → `503` (row count stays `1`, duplicate suppressed). Updated `tests/integration/test_admin.py:279` `test_replay_redeadletters_when_provider_still_down` to expect `1` DLQ row/receipt (duplicate suppressed) instead of `2` (pre-constraint). Added concurrency test `tests/integration/test_fix10_deadletter_proof.py:46` `test_fix10_concurrent_simulate_failure_creates_one_row` — `asyncio.gather` of two `POST /admin/simulate-failure` for same `event_id`, asserts `sorted(statuses)==[200,409]` (not `200+200`) and exactly `1` unresolved row.
-- **Human review / changes:** Follow-up A confirmed via `grep` no duplicates and Fix IDs aligned (`S0022` Fix1 … `S0031` Fix10, `S0032` summary in both files); Follow-up B pending review. No unrelated refactors.
+- **Human review / changes:** Rajat reviewed both follow-ups; confirmed Follow-up A Fix IDs aligned (`S0022` Fix1 … `S0031` Fix10, `S0032` summary, `S0021` gap) via `grep`, provided next moves (S0034 `varchar(32)` hotfix + `python-multipart` dep, S0035 edit-of-dead-lettered `500→202` defect) and approved moving to next phase. No unrelated refactors.
 - **Verification (final, after both follow-ups):**
   - Before follow-ups: `pytest -q` → `238 passed, 1 skipped`.
   - After A (ID bump): `pytest -q` → `238 passed, 1 skipped` (no code change, still green; `grep` confirms `S0021` gap in JSON, `S0022–S0032` aligned).
@@ -1195,7 +1195,7 @@ triggers the LIVE call, and a migration note for `0011`.
   - `docker-compose.yml:35` — added `GROQ_API_KEY: ${GROQ_API_KEY:-}` and `LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}` in the `app` environment block, same `${VAR:-default}` pattern as other settings, with comment about Groq-shaped model IDs. Did not remove `OPENROUTER_API_KEY` or `CLASSIFICATION_MODEL`.
   - `README.md:25` — updated `LIVE / SIMULATED` header to `Classification: LIVE call via OpenRouter or Groq (selectable)` and the `Interpretation / classification` table row to `One real HTTP call per event to the selected provider (LLM_PROVIDER=openrouter via OpenRouter OPENROUTER_API_KEY or groq via Groq GROQ_API_KEY — real, disclosed choice, not silently defaulted), temperature=0 (OpenRouter) / 1e-8 (Groq, see Groq quirk), max_tokens 200, response parsed. Not mocked. Groq key is separate — get at console.groq.com`. Added `Cost & Limits` bullet for Groq alternative: `LLM_PROVIDER=groq` via `GROQ_API_KEY` (`https://api.groq.com/openai/v1`, e.g. `llama-3.3-70b-versatile`), cost/latency **not yet measured** — left as “not available” per project convention (no estimate). Updated `Explicit statement` to mention both providers and that no live Groq call has been run.
   - `tests/unit/test_llm_provider.py` (new) — 7 unit tests for provider branching, mocked `openai.AsyncOpenAI`: `openrouter` → correct `base_url`/`api_key`/`headers` (with `HTTP-Referer`/`X-Title`) and caching; `groq` → correct `base_url`/`api_key` and **no** OpenRouter headers; `groq` missing key → `RuntimeError("GROQ_API_KEY is not configured")` at call time; `openrouter` missing key → same for `OPENROUTER_API_KEY`; invalid provider → `RuntimeError("Unknown llm_provider 'invalid-provider'")`; `_call_llm` temperature `0` for openrouter and `1e-8` for groq (with model `llama-3.3-70b-versatile` vs `deepseek/deepseek-v4-flash`). No test makes a real live call to Groq (matches existing `live`-gated pattern; Groq equivalent would be `RUN_LIVE_INTERPRET_TEST_GROQ=1` but optional and not added as required).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification:**
   - Code trace: `llm_provider="openrouter"` with no other config changes produces **identical** behavior to today, byte for byte — `base_url=OPENROUTER_BASE_URL`, `api_key=openrouter_api_key`, `default_headers={HTTP-Referer, X-Title}`, `temperature=0` in `_call_llm` — strict backward compatibility, not just nice-to-have.
   - Existing OpenRouter-path tests (mocked `_call_llm`, retry/dead-letter, etc.) still pass unchanged — strictly additive.
@@ -1223,7 +1223,7 @@ triggers the LIVE call, and a migration note for `0011`.
   - `README.md` — `## Cost & Limits` full rewrite with four models above (DeepSeek historical, Nemotron latency, Gemma 429, Groq `28/28` `16.61s` `0` dead-letters `8/3/4` distribution, `variance=0`, Groq `30 RPM / 1k RPD / 8k TPM / 200k TPD` stated limits, recommended `openai/gpt-oss-20b` via Groq, `CLASSIFICATION_MODEL` table row updated to `openai/gpt-oss-20b` with OpenRouter alternative); `## Plan vs. Built` new subsection `Live multi-provider classification testing (post-submission-prep)`; `## LIVE / SIMULATED` table row updated to `both real, working, disclosed` + `Groq now proven 28/28` (no longer “untested”).
   - `docs/evidence/` (new) — `reconciliation_live_groq_run.json` (pasted `variance=0` response), `logs_sample_redacted.jsonl` (redacted 7-field sample with `sha256:` PII), `pytest_final.txt` (`pytest -q` `241 passed` as of this task, unchanged from before since no code touched).
   - `docs/Submission_Checklist.md` — updated to reflect Groq/`gpt-oss-20b` as current recommended, pointed at new `docs/evidence/` files, re-ran secret-grep commands for real and pasted actual current output (still clean), updated `Final checklist — presence` rows for Cost/rate-limit, `AI_USAGE.md`, evidence export; left demo-recording and paid-service-approval items exactly as they were (out of scope, per instruction).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 - **Verification (honest, per instruction):**
   - The live pipeline runs themselves (`Nemotron` timeouts, `Gemma` `429`, `Groq` `28/28` `16.61s` `variance=0`) were **executed and observed directly by Rajat** (terminal output already available in this conversation's history — the evidence files in `docs/evidence/` are pasted from that real output, not re-run here). This session's *own* verification is limited to confirming the `README.md`/`AI_USAGE.md`/`docs/Submission_Checklist.md` changes **accurately reflect what already happened** (grep, `wc -l`, `pytest -q` still `241 passed`), not to re-running live LLM calls. No new live Groq call was made as part of this documentation task (per constraints, mocked tests only).
   - `pytest -q` still **241 passed, 1 skipped** (unchanged, since no code touched — final run pasted in `docs/evidence/pytest_final.txt`).
@@ -1243,6 +1243,6 @@ triggers the LIVE call, and a migration note for `0011`.
   - Before fix (fresh clone `file://$(pwd)` without the validator): `ADMIN_API_KEY=test-evaluator-key-12345 python3 -c "from app.config import Settings; Settings()"` → `ValidationError 3 validation errors for Settings` `interpret_min_tokens/retry_max_attempts/retry_base_delay_ms int_parsing input_value=''`.
   - After fix: fresh clone `git clone file://$(pwd) /tmp/dsw-fresh && cp .env.example .env && printf "ADMIN_API_KEY=test-evaluator-key-12345\n" >> .env && (cd /tmp/dsw-fresh && ADMIN_API_KEY=test-evaluator-key-12345 python3 -c "from app.config import Settings; s=Settings(); print(s.interpret_min_tokens, s.retry_max_attempts, s.retry_base_delay_ms)")` → `2 3 500`; `docker compose config` OK; `LLM_PROVIDER=groq GROQ_API_KEY=""` still succeeds at startup and fails only at `get_client()` `RuntimeError: GROQ_API_KEY is not configured` (mirroring `OPENROUTER_API_KEY` — blank allowed for short-text-only/mocked runs).
   - `pytest -q` still **249 passed, 1 skipped** (unchanged, validator is a safety net).
-- **Human review / changes:** pending Rajat review.
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 
 ---
