@@ -1246,3 +1246,22 @@ triggers the LIVE call, and a migration note for `0011`.
 - **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase.
 
 ---
+
+### Session: Refactor — Extract Cost, Plan vs. Built, Known Limitations from README to individual docs
+- **Session ID:** `DAXVORA-RAJAT-2026-08-A01-S0039`
+- **Date:** 2026-08-27
+- **Provider / model:** Muse Spark, `muse-spark-1.2`
+- **Classification:** Documentation refactor requested by Rajat — move three large sections out of `README.md` into their own files to keep README focused; no pipeline/logic change.
+- **What was generated / changed:**
+  - Created `docs/Cost_and_Limits.md` — extracted `## Cost & Limits` from `README.md:205` verbatim (4 live models: DeepSeek `212` `$0.000026` historical, Nemotron `>30s` timeout, Gemma `429` `20/min`, Groq `28/28` `16.61s` `0` dead-letters `8/3/4` + `30 RPM / 1k RPD / 8k TPM / 200k TPD` stated, recommended `openai/gpt-oss-20b` via Groq, model & params, efficiency savings, rate limits, explicit statement, performance `72.23 ms` etc.).
+  - Created `docs/Plan_vs_Built.md` — extracted `## Plan vs. Built` from `README.md:232` verbatim (deliberate `deepseek/deepseek-v4-flash` deviation, other plan-vs-built notes `fuzzy always manual`, `primary_company`, `UNIQUE`s, `escalated` on-read, `partial UNIQUE`, dashboard, plus `Live multi-provider classification testing (post-submission-prep)` 4-model sequence and 2 defects `S0034`/`S0035`, and `Known gaps`).
+  - Created `docs/Known_Limitations.md` — extracted `## Known Limitations` from `README.md:273` verbatim (8 bullets: single-process, no real connectors, no multi-tenant/RBAC, no retention, dashboard unpolished, escalation on-read, cost single-model, host assumption).
+  - Edited `README.md` — removed the three sections (`README.md:205–284` → `232` lines, was `307`) and replaced with `## Additional Documentation` with links to the three new docs (`docs/Cost_and_Limits.md`, `docs/Plan_vs_Built.md`, `docs/Known_Limitations.md`). Updated `LIVE / SIMULATED` interpretation row from `see ## Cost & Limits and ## Plan vs. Built` to `see docs/Cost_and_Limits.md and docs/Plan_vs_Built.md`, and `Configuration` `CLASSIFICATION_MODEL` row from `see Cost` to `see docs/Cost_and_Limits.md`.
+  - Updated `docs/Submission_Checklist.md` — changed `README 294 lines` → `232 lines`, changed `README.md:250 ## Known Limitations` → `docs/Known_Limitations.md`, `README.md:232 ## Plan vs. Built` → `docs/Plan_vs_Built.md`, `README.md:205` → `docs/Cost_and_Limits.md`, and the two `see README.md: Cost & Limits and Plan vs. Built` references to `docs/...` (6 replacements total, verified via `grep`).
+- **Human review / changes:** Rajat reviewed all outputs for this session; provided next cleanup (pending Rajat review status already fixed in `S0038` follow-up) and approved.
+- **Verification:**
+  - Before: `README.md` `307` lines contains `## Cost & Limits`, `## Plan vs. Built`, `## Known Limitations` (`grep -n "^## Cost" → 205`, `grep -n "^## Plan" → 232`, `grep -n "^## Known" → 273`).
+  - After: `README.md` `232` lines, `grep -n "^## Cost & Limits"` → `0`, `grep -n "^## Plan vs. Built"` → `0`, `grep -n "^## Known Limitations"` → `0`, `grep -n "Additional Documentation"` → `205`, `wc -l docs/Cost_and_Limits.md 26`, `docs/Plan_vs_Built.md 40`, `docs/Known_Limitations.md 12` (content preserved verbatim, `grep -c "Groq" docs/Cost_and_Limits.md 12`, `grep -c "primary_company" docs/Plan_vs_Built.md` etc.).
+  - `pytest -q` still **249 passed, 1 skipped** (no code touched, docs only).
+
+---

@@ -1258,6 +1258,38 @@
       "notes": [
         "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
       ]
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0039",
+      "phase": "Refactor - Extract Cost, Plan vs. Built, Known Limitations from README to individual docs",
+      "phase_name": "Refactor - Extract Cost, Plan vs. Built, Known Limitations from README to individual docs",
+      "date": "2026-08-27",
+      "human_modified_files": [],
+      "summary": "Documentation refactor requested by Rajat: move three large sections out of README.md into their own files. Created docs/Cost_and_Limits.md (extracted ## Cost & Limits verbatim: 4 live models DeepSeek 212 $0.000026 historical, Nemotron >30s, Gemma 429 20/min, Groq 28/28 16.61s 0 dead-letters 8/3/4 + 30 RPM/1k RPD/8k TPM/200k TPD, recommended openai/gpt-oss-20b via Groq, model & params, efficiency savings, rate limits, explicit statement, performance 72.23 ms), docs/Plan_vs_Built.md (extracted ## Plan vs. Built verbatim: deliberate deepseek deviation, other notes fuzzy always manual, primary_company, UNIQUEs, escalated on-read, partial UNIQUE, dashboard, Live multi-provider testing 4-model sequence and 2 defects S0034/S0035, Known gaps), docs/Known_Limitations.md (extracted ## Known Limitations verbatim: 8 bullets single-process, no connectors, no RBAC, no retention, dashboard unpolished, escalation on-read, cost single-model, host assumption). Edited README.md to remove three sections (307->232 lines) and replace with ## Additional Documentation with links to the three new docs; updated LIVE/SIMULATED interpretation row from see ## Cost & Limits and ## Plan vs. Built to see docs/Cost_and_Limits.md and docs/Plan_vs_Built.md, and Configuration CLASSIFICATION_MODEL row from see Cost to see docs/Cost_and_Limits.md. Updated docs/Submission_Checklist.md to change README 294 lines->232, README.md:250 Known Limitations->docs/Known_Limitations.md, README.md:232 Plan vs Built->docs/Plan_vs_Built.md, README.md:205->docs/Cost_and_Limits.md, and two see README references to docs.",
+      "verification": "Before: README.md 307 lines contains ## Cost & Limits, ## Plan vs. Built, ## Known Limitations (grep -n ^## Cost ->205, ^## Plan ->232, ^## Known ->273). After: README.md 232 lines, grep -n ^## Cost & Limits ->0, ^## Plan vs. Built ->0, ^## Known Limitations ->0, grep -n Additional Documentation ->205, wc -l docs/Cost_and_Limits.md 26, docs/Plan_vs_Built.md 40, docs/Known_Limitations.md 12 (content preserved verbatim, grep -c Groq 12, primary_company etc). pytest -q still 249 passed 1 skipped (no code touched, docs only).",
+      "started_at": "2026-08-27T00:00:00Z",
+      "ended_at": "2026-08-27T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Remove plan vs build, cost and limits and limitations from readme and put in their individual files"
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "README.md",
+        "docs/Cost_and_Limits.md",
+        "docs/Plan_vs_Built.md",
+        "docs/Known_Limitations.md",
+        "docs/Submission_Checklist.md",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": [
+        "Rajat reviewed all outputs for this session; provided next cleanup/bug-fix tasks and approved moving to next phase."
+      ]
     }
   ]
 }
