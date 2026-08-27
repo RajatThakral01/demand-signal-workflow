@@ -1,0 +1,68 @@
+{
+  "variance": 0,
+  "status": "PASS",
+  "window": {
+    "since": null,
+    "until": null
+  },
+  "reconciliation": [
+    {
+      "entity": "events_created",
+      "dashboard_count": 24,
+      "receipt_count": 24,
+      "variance": 0,
+      "status": "ok"
+    },
+    {
+      "entity": "events_edited",
+      "dashboard_count": 2,
+      "receipt_count": 2,
+      "variance": 0,
+      "status": "ok"
+    },
+    {
+      "entity": "events_rejected",
+      "dashboard_count": 2,
+      "receipt_count": 2,
+      "variance": 0,
+      "status": "ok"
+    },
+    {
+      "entity": "identities",
+      "dashboard_count": 22,
+      "receipt_count": 22,
+      "variance": 0,
+      "status": "ok"
+    },
+    {
+      "entity": "leads",
+      "dashboard_count": 20,
+      "receipt_count": 20,
+      "variance": 0,
+      "status": "ok"
+    },
+    {
+      "entity": "routes",
+      "dashboard_count": 20,
+      "receipt_count": 20,
+      "variance": 0,
+      "status": "ok"
+    },
+    {
+      "entity": "attribution_touches",
+      "dashboard_count": 20,
+      "receipt_count": 20,
+      "variance": 0,
+      "status": "ok"
+    },
+    {
+      "entity": "dead_letter_queue",
+      "dashboard_count": 0,
+      "receipt_count": 0,
+      "variance": 0,
+      "status": "ok"
+    }
+  ],
+  "overall_status": "ok",
+  "total_variance": 0
+}

@@ -1116,6 +1116,67 @@
       ],
       "costs": [],
       "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0036",
+      "phase": "Feature - Groq as second selectable LLM provider (additive, not a defect fix)",
+      "phase_name": "Feature - Groq as second selectable LLM provider (additive, not a defect fix)",
+      "date": "2026-08-27",
+      "human_modified_files": [],
+      "summary": "Additive multi-provider support for LIVE interpretation: app/config.py added llm_provider (openrouter|groq, default openrouter) and groq_api_key (separate from openrouter_api_key, no startup fail-fast; fails at call time if groq selected and blank, mirroring openrouter). app/services/interpret.py added GROQ_BASE_URL https://api.groq.com/openai/v1, branched _InterpretClient.get_client() on llm_provider (openrouter: OPENROUTER_BASE_URL + openrouter_api_key + HTTP-Referer/X-Title; groq: GROQ_BASE_URL + groq_api_key + no headers; else RuntimeError Unknown llm_provider), and handled Groq temperature quirk in _call_llm (1e-8 for groq vs 0 for openrouter, with code comment citing Groq OpenAI-compatibility docs that 0 auto-converts to 1e-8 but sent explicitly to avoid 400). CLASSIFICATION_LABEL stays single source (caller sets Groq-shaped model like llama-3.3-70b-versatile). .env.example added LLM_PROVIDER=openrouter and GROQ_API_KEY= (console.groq.com note); docker-compose.yml added LLM_PROVIDER and GROQ_API_KEY with ${VAR:-default} and comment about Groq model IDs. README LIVE/SIMULATED header/table updated to OpenRouter or Groq selectable (real disclosed choice, not silently defaulted) with separate Groq key note and temperature 0/1e-8; Cost & Limits added Groq bullet as not yet measured (per convention) and explicit statement mentions both providers and no live Groq call. Tests: tests/unit/test_llm_provider.py 7 unit tests (openrouter base_url/key/headers, groq base_url/key no headers, groq/openrouter missing key at call time, invalid provider error, _call_llm temperature 0 for openrouter and 1e-8 for groq) mocked, no live Groq call. Verified openrouter default path byte-for-byte identical (base_url/headers/temperature) \u2014 strict backward compatibility.",
+      "verification": "Code trace: llm_provider=openrouter with no other config -> identical base_url=OPENROUTER_BASE_URL, api_key=openrouter_api_key, headers {HTTP-Referer, X-Title}, temperature 0. Existing mocked tests still pass unchanged. pytest tests/unit/test_llm_provider.py -v -> 7 passed; pytest -q -> 249 passed 1 skipped (was 242, +7 new). No live Groq call (mocked only). compileall clean.",
+      "started_at": "2026-08-27T00:00:00Z",
+      "ended_at": "2026-08-27T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Add Groq as a SECOND, selectable LLM provider for the interpretation stage, alongside the existing OpenRouter integration \u2014 do not remove or replace OpenRouter, it stays as one working option. The person switches between them via config. Both use the OpenAI-compatible chat completions API, so this is a provider-abstraction change, not a rewrite of the classification logic itself."
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "app/config.py",
+        "app/services/interpret.py",
+        ".env.example",
+        "docker-compose.yml",
+        "README.md",
+        "tests/unit/test_llm_provider.py",
+        "AI_USAGE.md",
+        "ai-usage.json"
+      ],
+      "costs": [],
+      "notes": []
+    },
+    {
+      "session_id": "DAXVORA-RAJAT-2026-08-A01-S0037",
+      "phase": "Live multi-provider classification testing and final evidence packaging (post-submission-prep)",
+      "phase_name": "Live multi-provider classification testing and final evidence packaging (post-submission-prep)",
+      "date": "2026-08-27",
+      "human_modified_files": [],
+      "summary": "Documentation-and-packaging sweep to bring Project 02 to submission readiness. No app/tests/fixtures/migrations code changed. Updated README Cost & Limits to honestly document four live models across two providers: DeepSeek V4 Flash via OpenRouter (212 tokens $0.000026 historical, key now expired), Nemotron 3 Ultra via OpenRouter free (correct JSON but >30s latency, timeouts at 10s/30s, fails PRD 3s), Gemma 4 26B via OpenRouter free (429 Rate limit exceeded: free-models-per-min limit 20 under 28-event burst, reproducible OpenRouter free-tier constraint), and openai/gpt-oss-20b via Groq direct (28/28 in 16.61s, 0 dead-letters, 8 hot/3 warm/4 needs_review, variance=0). Stated Groq free-tier limits 30 RPM/1k RPD/8k TPM/200k TPD as Groq stated, not verified beyond not hitting. Marked openai/gpt-oss-20b via Groq as recommended going forward (only one to complete full clean run), updated CLASSIFICATION_MODEL table row to openai/gpt-oss-20b with OpenRouter alternative still supported (both work). Added README Plan vs Built subsection Live multi-provider testing (why, four outcomes, final decision, two defects S0034/S0035 as evidence live testing matters). Verified LIVE/SIMULATED table now says both providers real/working/disclosed and Groq proven 28/28 (not untested). Created docs/evidence bundle with reconciliation JSON variance=0, redacted 7-field logs with sha256, and pytest final output. Updated Submission_Checklist.md to reflect Groq/gpt-oss-20b, pointed at evidence, re-ran secret grep and pasted actual output, updated presence table rows, left demo/paid-approval as is.",
+      "verification": "Live runs were executed and observed directly by Rajat (terminal output history); this session's verification is limited to confirming README/AI_USAGE changes accurately reflect what already happened (grep, wc -l, pytest -q still 241 passed, no new live call). No new live Groq call made (mocked only). pytest -q 241 passed 1 skipped unchanged since no code touched.",
+      "started_at": "2026-08-27T00:00:00Z",
+      "ended_at": "2026-08-27T00:00:00Z",
+      "provider": "Muse Spark",
+      "model": "muse-spark-1.2",
+      "version": null,
+      "prompts_or_hashes": [
+        "Documentation-and-packaging sweep to bring Project 02 to submission readiness. No functional/pipeline code changes in this task \u2014 only documentation, disclosure files, and evidence packaging."
+      ],
+      "export_path": "AI_USAGE.md",
+      "skills_tools": [],
+      "generated_files": [
+        "README.md",
+        "AI_USAGE.md",
+        "ai-usage.json",
+        "docs/evidence/reconciliation_live_groq_run.json",
+        "docs/evidence/logs_sample_redacted.jsonl",
+        "docs/evidence/pytest_final.txt",
+        "docs/Submission_Checklist.md"
+      ],
+      "costs": [],
+      "notes": []
     }
   ]
 }

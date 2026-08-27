@@ -41,6 +41,7 @@ logger = get_logger(__name__)
 PROMPT_VERSION = "interpret_v1"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_REFERRER = "https://github.com/RajatThakral01/demand-signal-workflow"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # Regex to strip structural/whitespace so a text with no real lexical content
 # counts as zero tokens, mirroring how "thin" input behaves with a tokenizer.
@@ -149,7 +150,13 @@ def _build_messages(text: str) -> list[dict]:
 
 
 class _InterpretClient:
-    """Lazy wrapper over the openai async client pointed at OpenRouter."""
+    """Lazy wrapper over the openai async client pointed at the selected provider.
+
+    Provider is selected via `settings.llm_provider` ("openrouter" or "groq").
+    Both use the OpenAI-compatible chat.completions API, so switching is a
+    provider-abstraction change, not a rewrite. OpenRouter-specific attribution
+    headers are only sent for the OpenRouter provider.
+    """
 
     def __init__(self, settings_: Any = settings):
         self._settings = settings_
@@ -159,19 +166,37 @@ class _InterpretClient:
         if self._client is None:
             from openai import AsyncOpenAI
 
-            api_key = self._settings.openrouter_api_key
-            if not api_key:
-                raise RuntimeError("OPENROUTER_API_KEY is not configured")
-            # LIVE call: OpenAI-compatible endpoint at OpenRouter (PRD §6).
-            self._client = AsyncOpenAI(
-                base_url=OPENROUTER_BASE_URL,
-                api_key=api_key,
-                # Optional metadata headers; harmless, helps attribution.
-                default_headers={
-                    "HTTP-Referer": OPENROUTER_REFERRER,
-                    "X-Title": "demand-signal-workflow",
-                },
-            )
+            provider = getattr(self._settings, "llm_provider", "openrouter")
+            if provider == "openrouter":
+                api_key = self._settings.openrouter_api_key
+                if not api_key:
+                    raise RuntimeError("OPENROUTER_API_KEY is not configured")
+                # LIVE call: OpenAI-compatible endpoint at OpenRouter (PRD §6).
+                self._client = AsyncOpenAI(
+                    base_url=OPENROUTER_BASE_URL,
+                    api_key=api_key,
+                    # Optional metadata headers; harmless, helps attribution.
+                    default_headers={
+                        "HTTP-Referer": OPENROUTER_REFERRER,
+                        "X-Title": "demand-signal-workflow",
+                    },
+                )
+            elif provider == "groq":
+                api_key = self._settings.groq_api_key
+                if not api_key:
+                    raise RuntimeError("GROQ_API_KEY is not configured")
+                # LIVE call: OpenAI-compatible endpoint at Groq (console.groq.com).
+                # Groq does not use OpenRouter's attribution convention, so no
+                # HTTP-Referer / X-Title headers are sent.
+                self._client = AsyncOpenAI(
+                    base_url=GROQ_BASE_URL,
+                    api_key=api_key,
+                )
+            else:
+                raise RuntimeError(
+                    f"Unknown llm_provider '{provider}'. Expected 'openrouter' or 'groq'. "
+                    "Set LLM_PROVIDER accordingly and provide the matching API key."
+                )
         return self._client
 
 
@@ -209,13 +234,21 @@ async def _call_llm(text: str) -> dict:
     """
     messages = _build_messages(text)
     client = _client_holder.get_client()
+    # Groq's OpenAI-compatibility quirk: temperature=0 is not accepted the same
+    # way as OpenRouter/OpenAI. Groq's docs note that 0 is auto-converted to
+    # 1e-8, but to avoid a potential 400 on stricter deployments we send the
+    # small positive float explicitly when llm_provider is "groq". For
+    # "openrouter" (and OpenAI) we keep temperature=0 for deterministic output.
+    # Source: Groq's OpenAI-compatibility docs (console.groq.com).
+    provider = getattr(settings, "llm_provider", "openrouter")
+    temperature = 1e-8 if provider == "groq" else 0
     response = await client.chat.completions.create(
         model=settings.classification_model,
         messages=messages,
-        temperature=0,
+        temperature=temperature,
         # Generous enough for the model's reasoning tokens + a full short JSON
         # object; too small a budget truncates valid JSON mid-parse.
-        max_tokens=200,
+        max_tokens=400,
     )
     content = response.choices[0].message.content or ""
     usage = None

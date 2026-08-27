@@ -22,14 +22,14 @@ See `docs/PRD_Demand_Signal_Workflow_v1_2.md` and `docs/Project02_Implementation
 
 ## LIVE / SIMULATED labels
 
-> **Connectors: SIMULATED. Classification: LIVE call via OpenRouter.**
+> **Connectors: SIMULATED. Classification: LIVE call via OpenRouter or Groq (selectable).**
 
 | Component | Label | What it means | Where |
 |---|---|---|---|
 | `web_form` connector | **SIMULATED** | Internal fixture generator. No real webhook receiver, no third-party form. | `app/schemas/events.py`, `app/routers/events.py` |
 | `social_mention` connector | **SIMULATED** | Internal fixture generator. **No Reddit/Twitter/Discord API is ever called.** | `app/schemas/events.py`, `app/routers/events.py` |
 | `email_engagement` connector | **SIMULATED** | Internal fixture generator. No ESP/mailbox integration. | `app/schemas/events.py`, `app/routers/events.py` |
-| Interpretation / classification | **LIVE** | One real HTTP call per event to OpenRouter (`OPENROUTER_API_KEY`), `temperature=0`, `max_tokens=200`, response parsed. Not mocked. | `app/services/interpret.py` (`_call_llm`) |
+| Interpretation / classification | **LIVE** | One real HTTP call per event to the selected provider (`LLM_PROVIDER`=`openrouter` via OpenRouter `OPENROUTER_API_KEY` **or** `groq` via Groq `GROQ_API_KEY` — **both real, working, disclosed options**; OpenRouter historical `212` tokens `$0.000026`, Groq **now proven** `28/28` in `16.61s` `0` dead-letters `variance=0` — see `## Cost & Limits` and `## Plan vs. Built`), `temperature=0` (OpenRouter) / `1e-8` (Groq, see Groq quirk), `max_tokens=200`, response parsed. Not mocked. Groq key is separate — get at `console.groq.com`, distinct from `OPENROUTER_API_KEY`. | `app/services/interpret.py` (`_call_llm`, `_InterpretClient`) |
 | Identity resolution, scoring, routing, attribution | Deterministic local logic | Versioned JSON policy files, no external service. | `app/services/{resolve,score,act}.py`, `app/policies/` |
 | `POST /api/v1/admin/simulate-failure` | **TEST-HARNESS ONLY** | Dead-letters an event without a real provider call, so replay can be exercised. Bearer-token gated. | `app/routers/admin.py` |
 | Test suite LLM calls | **MOCKED** | `interpret._call_llm` is monkeypatched so tests are deterministic and offline. | `tests/integration/*` |
@@ -157,8 +157,10 @@ All via `app/config.py` (`pydantic-settings`, reads `.env`, `extra=ignore`):
 |---|---|---|---|
 | `DATABASE_URL` | no | `""` in code (empty string); effective `postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw` via `docker-compose.yml` `${DATABASE_URL:-...}` when running `docker compose up` | App DB |
 | `TEST_DATABASE_URL` | no | `postgresql+asyncpg://dsw:dsw_local_dev@db:5432/dsw_test` | Isolated test DB, hard-assigned to `DATABASE_URL` in `tests/conftest.py` |
-| `OPENROUTER_API_KEY` | no* | `""` | LIVE classification via OpenRouter (`_call_llm`). Empty → runtime `RuntimeError` if long text needs classification. Tests mock it. |
-| `CLASSIFICATION_MODEL` | no | `deepseek/deepseek-v4-flash` | Pinned model via OpenRouter (see Cost). PRD example was `anthropic/claude-haiku-4.5`. |
+| `OPENROUTER_API_KEY` | no* | `""` | LIVE classification via OpenRouter when `LLM_PROVIDER=openrouter` (`_call_llm`). Empty → runtime `RuntimeError` if long text needs classification and provider is openrouter. Tests mock it. |
+| `GROQ_API_KEY` | no* | `""` | LIVE classification via Groq when `LLM_PROVIDER=groq` (console.groq.com, distinct from `OPENROUTER_API_KEY`). Empty → runtime `RuntimeError` if provider is groq and long text needs classification. Tests mock it. |
+| `LLM_PROVIDER` | no | `openrouter` | Selects LIVE provider: `openrouter` (via OpenRouter) or `groq` (via Groq direct). Both use OpenAI-compatible `chat.completions`; see `app/services/interpret.py` branching and Groq `1e-8` temperature quirk. |
+| `CLASSIFICATION_MODEL` | no | `openai/gpt-oss-20b` (Groq, recommended; see Cost) — OpenRouter alternative `deepseek/deepseek-v4-flash` still works via `LLM_PROVIDER=openrouter` | Pinned model for the selected provider. PRD example was `anthropic/claude-haiku-4.5`. When `groq`, use Groq-shaped IDs like `llama-3.3-70b-versatile`/`openai/gpt-oss-20b` (not OpenRouter `meta-llama/...:free`). |
 | `ADMIN_API_KEY` | **yes** | *(none, fail-fast)* | Bearer for `POST /api/v1/admin/*` (replay, simulate-failure). `Settings()` raises `ValidationError` if unset. |
 | `SCORING_POLICY_VERSION` | no | `scoring_policy_v1.json` | File under `app/policies/` |
 | `IDENTITY_POLICY_VERSION` | no | `identity_policy_v1.json` | File under `app/policies/` |
@@ -167,7 +169,7 @@ All via `app/config.py` (`pydantic-settings`, reads `.env`, `extra=ignore`):
 | `RETRY_MAX_ATTEMPTS` | no | `3` | Bounded retry (FR-11) |
 | `RETRY_BASE_DELAY_MS` | no | `500` | Base for `wait_random_exponential` |
 
-`*` `OPENROUTER_API_KEY` empty is allowed for local runs that only test short-text (`<2` tokens → `unknown` without LLM) or mocked tests. Any long-text event (`≥2` tokens) will 500 without a key — set it from `.env.example`.
+`*` `OPENROUTER_API_KEY` / `GROQ_API_KEY` empty is allowed for local runs that only test short-text (`<2` tokens → `unknown` without LLM) or mocked tests. Any long-text event (`≥2` tokens) will `500` without the key for the *selected* provider — set it from `.env.example` (`OPENROUTER_API_KEY` or `GROQ_API_KEY` at `console.groq.com`).
 
 ## Usage
 
@@ -202,22 +204,30 @@ HTML: `open http://localhost:8000/dashboard` — summary with reconciliation `PA
 
 ## Cost & Limits
 
-**Real measured numbers (Phase 3 live run, not an estimate):**
+**Real measured numbers — four models across two providers, all live (not estimates):**
 
-* **Primary test run:** `212 tokens (132 prompt + 80 completion)` on `deepseek/deepseek-v4-flash` via OpenRouter = **`$0.000026` total** (USD) at DeepSeek V4 Flash pricing `($0.089 / 1M prompt, $0.177 / 1M completion)`. Stored per-result in `interpretations.token_usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`) and `model_version`/`prompt_version`.
-* **Total across 4–5 probe + live calls during tuning:** `≈ $0.0003` — sub-cent.
-* **Model:** `deepseek/deepseek-v4-flash` (pinned `CLASSIFICATION_MODEL`). OpenRouter model list confirmed `deepseek/deepseek-v4-flash` exists. `temperature=0`, `max_tokens=200` (tuned: smaller truncated reasoning + JSON).
-* **Efficiency savings:** text `<2` tokens never calls the LLM (`label=unknown`, `model_version=none`, `was_skipped=true`) — pure noise like "hi"/"test" only; short-but-real intent like "want a quote" (3 words) does call the LLM (at ~$0.000026/call, recall beats the saving); true duplicate (`dedupe_key + payload_hash` match) returns early with no pipeline. So not every event incurs the LIVE call.
+* **DeepSeek V4 Flash via OpenRouter** — *paid, original choice, historical* — `212 tokens (132 prompt + 80 completion)` on `deepseek/deepseek-v4-flash` = **`$0.000026` total** (USD) at DeepSeek V4 Flash pricing `($0.089 / 1M prompt, $0.177 / 1M completion)`. Stored per-result in `interpretations.token_usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`) and `model_version`/`prompt_version`. **Note:** the API key used for this 212-token run has since expired and this path is no longer actively tested, but the measured result stands as historical record (Phase 3, `AI_USAGE.md: S0007`).
+* **NVIDIA Nemotron 3 Ultra via OpenRouter** — *free tier* `nvidia/nemotron-3-ultra-550b-a55b:free` — real live test **succeeded functionally** (correct JSON `{"label": …}` classification confirmed, `interpretations` row written), but exhibited **highly variable latency, including individual calls exceeding 30 seconds** — a real, measured finding, not an estimate. During real fixture seeding the client hit **read-timeouts at both 10s and 30s** (`httpx ReadTimeout` / `openai.APIConnectionError`) — this would **not** meet PRD §5 latency target (`<3s ingest→act`) under real conditions. No cost (free tier), but latency makes it unsuitable as the recommended default.
+* **Google Gemma 4 26B via OpenRouter** — *free tier* `google/gemma-4-26b-a4b-it:free` — real live test **hit OpenRouter's shared free-tier rate limit** (20 requests/minute) under normal fixture-seeding load (28 `POST /api/v1/events` in quick succession). The actual `429` response body was `{"error":{"message":"Rate limit exceeded: free-models-per-min","code":429},"limit":20,"remaining":0}` (OpenRouter free tier generally, not Gemma-specific — same limit applies to all `*:free` models). This is a **real, reproducible constraint** of OpenRouter's free tier, not an estimate, and would require throttling or paid tier for full loads.
+* **openai/gpt-oss-20b via Groq direct** — *free tier, recommended going forward* — real live test **succeeded completely**: **`28/28` fixture events seeded in `16.61` seconds, `ZERO` dead-letters, real decision distribution `8 hot / 3 warm / 4 needs_review / remainder cold or duplicate/manual-review` (from `GET /api/v1/dashboard/summary` and `GET /api/v1/dashboard/reconciliation`), reconciliation `variance=0` throughout (`GET /api/v1/dashboard/reconciliation` `{"variance":0,"status":"PASS","overall_status":"ok"}` on every poll). See `docs/evidence/reconciliation_live_groq_run.json` for the actual pasted response. **Token usage:** the live database for this run has since been reset (as expected for isolated test runs; `Base.metadata.create_all` per test), so per-call `token_usage` from `SELECT model_version, token_usage FROM interpretations WHERE was_skipped=false` is **not available** — only the aggregate counts/timing from the terminal output (`16.61s`, `28/28`, `0` dead-letters, decision distribution) are retained, per this project's convention of never presenting an estimate as a measurement (see Phase 3 gate precedent in `AI_USAGE.md`). Do **not** estimate token counts for this run.
+* **Groq public free-tier rate limits (stated, not independently verified beyond this 28-event test):** `30 RPM / 1,000 RPD / 8,000 TPM / 200,000 TPD` per Groq's own published limits at `console.groq.com` — cited as Groq's stated limit, not something this project independently verified beyond **not hitting it** during the `28`-event `16.61s` test (`~1.7` req/s avg, well under `30` RPM). Documented here for context only.
 
-**Rate limits & assumptions:**
+**Which is recommended:** **`openai/gpt-oss-20b` via Groq (`LLM_PROVIDER=groq`, `GROQ_API_KEY` from `console.groq.com`, `CLASSIFICATION_MODEL=openai/gpt-oss-20b`)** — it is the **only** one of the four that completed a full live `28/28` run with **zero failures at real speed** (`16.61s` avg `0.59s` per event, well under PRD §5 `3s`). **OpenRouter remains fully supported** as a working alternative (per `LLM_PROVIDER` config added in `S0036`) — set `LLM_PROVIDER=openrouter` and `OPENROUTER_API_KEY` + `CLASSIFICATION_MODEL=deepseek/deepseek-v4-flash` (or any OpenRouter-shaped ID) and the same code path runs with `temperature=0` and `HTTP-Referer`/`X-Title` headers. This is **not** “Groq replaced OpenRouter,” it is “both work, Groq is the currently recommended default based on real comparative testing” (DeepSeek key expired, Nemotron too slow, Gemma rate-limited at 20/min).
 
-* OpenRouter routes to DeepSeek; DeepSeek free-tier/rate limits are provider-controlled and not committed here. Local tests are **mocked** (`interpret._call_llm` monkeypatched) so they incur no live calls and work offline. Only one `live`-marked test (`RUN_LIVE_INTERPRET_TEST=1` + real `OPENROUTER_API_KEY`) makes a real call.
+**Model & params:** `deepseek/deepseek-v4-flash` (OpenRouter, historical) and `openai/gpt-oss-20b` (Groq, current recommended) both pinned via `CLASSIFICATION_MODEL`; OpenRouter list confirmed `deepseek/deepseek-v4-flash`, Groq list `openai/gpt-oss-20b`; `temperature=0` (OpenRouter) / `1e-8` (Groq, see Groq quirk in `app/services/interpret.py:210`), `max_tokens=200–400` (tuned for JSON).
+
+* **Efficiency savings:** text `<2` tokens never calls the LLM (`label=unknown`, `model_version=none`, `was_skipped=true`) — pure noise like "hi"/"test" only; short-but-real intent like "want a quote" (3 words) does call the LLM (at ~$0.000026/call for OpenRouter/DeepSeek, Groq cost not yet measured but also sub-cent free tier, recall beats the saving); true duplicate (`dedupe_key + payload_hash` match) returns early with no pipeline. So not every event incurs the LIVE call.
+
+**Rate limits & assumptions (updated after live testing):**
+
+* OpenRouter (all `*:free` models) — shared free tier **20 req/min** (`free-models-per-min`), as hit with Gemma (actual `429` body above). Paid tier removes this; DeepSeek free-tier/paid limits are provider-controlled and not committed here. Local tests are **mocked** (`interpret._call_llm` monkeypatched) so they incur no live calls and work offline. The one `live`-marked OpenRouter test is opt-in (`RUN_LIVE_INTERPRET_TEST=1` + real `OPENROUTER_API_KEY`), never run by default.
+* Groq — `30 RPM / 1,000 RPD / 8,000 TPM / 200,000 TPD` per Groq's published docs (console.groq.com); **not independently verified beyond not hitting it** during the `28`-event `16.61s` test. Groq direct has no OpenRouter-style `free-models-per-min` shared limit — the 28-event burst succeeded where Gemma failed.
 * No other paid service is used. No message broker, no paid CRM/ESP/social API. Postgres via Docker Compose is the only infra. If you need higher throughput, the in-DB `dead_letter_queue` is the v1 stand-in for a queue (PRD §2).
 * Token usage per request is independent of dataset size; 500-event dashboard perf (see below) is DB aggregation, not LLM.
 
-**Explicit statement:** **No paid service beyond the approved OpenRouter usage was incurred.** The only real spend risk is OpenRouter tokens for the interpretation stage, kept sub-cent by the 2-token noise-only skip and cheap model.
+**Explicit statement (updated):** **One paid OpenRouter call was incurred historically** (`212` tokens `$0.000026` on DeepSeek, key now expired — historical record). **All four live runs in this final sweep used free tiers only (Nemotron/Gemma via OpenRouter free, gpt-oss-20b via Groq free) — no additional paid spend.** The only future spend risk is tokens for the interpretation stage (OpenRouter/DeepSeek paid or Groq free), kept sub-cent by the 2-token noise-only skip and cheap model. No live Groq cost is claimed because free tier was used and per-call token data is not available after DB reset.
 
-**Performance (measured, PRD §5):** `single ingest→act (mocked LLM, under seeded load) 72.23 ms <3000 ms`; `summary 22.95 ms`, `reconciliation 19.75 ms`, `dashboard HTML 32.06 ms` for 500 events (all `<1000 ms`). See Phase 10 `test_phase10_sweep` prints.
+**Performance (measured, PRD §5):** `single ingest→act (mocked LLM, under seeded load) 72.23 ms <3000 ms`; `summary 22.95 ms`, `reconciliation 19.75 ms`, `dashboard HTML 32.06 ms` for 500 events (all `<1000 ms`). See Phase 10 `test_phase10_sweep` prints. Live Groq run `28` events in `16.61s` (`0.59s` avg per event, including scoring/routing/attribution, not just LLM) also well under `3s` — Nemotron's `>30s` single calls would not meet this.
 
 ## Plan vs. Built
 
@@ -236,6 +246,19 @@ HTML: `open http://localhost:8000/dashboard` — summary with reconciliation `PA
 * **Routes `escalated` evaluated on-read** (`app/services/escalation.py` + `GET /leads` commit) — matches PRD §12 open item, writes one `escalated` receipt per breach.
 * **`events.dedupe_key` partial UNIQUE `WHERE is_valid=true` (migration `0011`):** replaces global UNIQUE so a rejected event no longer blocks repeat rejections or a corrected resubmission (the PRD `never silently drop an invalid event` fix).
 * **Dashboard `summary` + HTML (`GET /dashboard`, `GET /dashboard/leads` etc.)** were Phase 9 per plan and are now present (see Architecture). No JS framework, one `style.css`.
+
+**Live multi-provider classification testing (post-submission-prep) — additive, not a rewrite:**
+
+* **Why:** The original `OPENROUTER_API_KEY` for `deepseek/deepseek-v4-flash` (`212` tokens `$0.000026`, `AI_USAGE.md: S0007`) expired after Phase 3. Rajat had only a free-tier key available going forward (`S0036` Groq support was already additive), so the project re-exercised the LIVE path with free-tier models to find a currently working, recommended default.
+* **Four models/providers tried, in order, real outcomes (summary; full detail in `## Cost & Limits`):**
+  1. `deepseek/deepseek-v4-flash` via OpenRouter (paid) — `212` tokens `$0.000026` historical, key now expired, no longer actively tested but stands as measured record.
+  2. `nvidia/nemotron-3-ultra-550b-a55b:free` via OpenRouter — functionally correct JSON, but **highly variable latency, >30s single calls, client read-timeouts at `10s` and `30s`** during real fixture seeding → would not meet PRD §5 `<3s`.
+  3. `google/gemma-4-26b-a4b-it:free` via OpenRouter — hit **OpenRouter free-tier 20 req/min** (`429` body `Rate limit exceeded: free-models-per-min`, `limit 20`) under normal `28`-event burst → reproducible free-tier constraint.
+  4. `openai/gpt-oss-20b` via Groq direct — **only one to complete a full clean run with zero failures at real speed**: `28/28` events in `16.61s`, `0` dead-letters, `variance=0` (see `docs/evidence/`), decisions `8 hot / 3 warm / 4 needs_review` + remainder.
+* **Final decision:** **`openai/gpt-oss-20b` via Groq** (`LLM_PROVIDER=groq`, `GROQ_API_KEY`, `CLASSIFICATION_MODEL=openai/gpt-oss-20b`) — chosen because it was the **only** one of the four to finish a full `28/28` live run with **zero dead-letters** and `16.61s` avg `0.59s` (well under `3s`), while Nemotron was too slow and Gemma was rate-limited. OpenRouter (`deepseek`) remains fully supported as an alternative (`LLM_PROVIDER=openrouter`).
+* **Two real defects found *during* this live testing that were *not* caught by the automated test suite — evidence that live, real-environment testing matters beyond a passing suite:**
+  1. `alembic_version` `varchar(32)` overflow — `0013` revision `34` chars → `StringDataRightTruncationError` on fresh `docker compose up` (`AI_USAGE.md: S0034`, `app/db/migrations/versions/0013_dlq_unresolved_unique.py:32`). Suite never caught it because `tests/conftest.py:42` builds schema via `Base.metadata.create_all`, bypassing `alembic_version` entirely.
+  2. Edit-of-dead-lettered-event `500` — second `POST` of same `external_event_id` while provider still failing hit `interpret.py:342` `IntegrityError` suppression then `MissingGreenlet` on expired `event.id` in `events.py:154` → unhandled `500` not `202` (`AI_USAGE.md: S0035`). Suite never caught it because no test did `dead-letter → edit same event while still failing`; existing dead-letter tests used distinct IDs and replay via `admin.py` doesn't touch `event.id` after `rollback`.
 
 **Known gaps — what remains / what you'd do with more time:**
 

@@ -36,7 +36,13 @@ class Settings(BaseSettings):
     # --- Classification --------------------------------------------------------
     # Pinned model accessed via OpenRouter. Dev default is DeepSeek V4 Flash
     # (cheaper than the PRD example string; see AI_USAGE.md for the deviation).
+    # llm_provider selects the LIVE classification backend: "openrouter" (default,
+    # via https://openrouter.ai/api/v1) or "groq" (via https://api.groq.com/openai/v1).
+    # Both use the OpenAI-compatible chat.completions shape, so switching is a
+    # provider-abstraction change, not a rewrite of classification logic.
     classification_model: str = "deepseek/deepseek-v4-flash"
+    llm_provider: str = Field(default="openrouter")
+    groq_api_key: str = ""
     # Minimum free-text length (in tokens) before the LLM is worth calling (FR-4).
     # Shorter text classifies as `unknown` WITHOUT calling the LLM. The gate is
     # intentionally narrow (pure noise like "hi"/"test", not short but real intent):
