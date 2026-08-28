@@ -8,8 +8,11 @@
 </head>
 <body>
 <header>
-    <h1>Demand-Signal Workflow</h1>
-    <p class="eval-id">Evaluation ID DAXVORA-RAJAT-2026-08-A01 | Connectors: <strong>SIMULATED</strong> (fixture generators) | Classification: <strong>LIVE</strong> via OpenRouter</p>
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <h1>Demand-Signal Workflow</h1>
+        <span class="badge badge-ok" style="font-size:0.75rem;">Local evaluator build</span>
+    </div>
+    <p class="eval-id">Evaluation ID DAXVORA-RAJAT-2026-08-A01 &middot; Connectors: <strong>SIMULATED</strong> (fixture generators) &middot; Classification: <strong>LIVE</strong> via OpenRouter</p>
     <nav aria-label="Primary">
         <a href="/dashboard" {% if request.url.path == "/dashboard" %}aria-current="page"{% endif %}>Summary</a>
         <a href="/dashboard/leads" {% if request.url.path.startswith("/dashboard/leads") %}aria-current="page"{% endif %}>Leads</a>
@@ -23,7 +26,13 @@
     {% block content %}{% endblock %}
 </main>
 <footer>
-    <p>Read-only evaluator tooling — no JS framework, plain semantic HTML. Raw PII never shown in logs; display names shown here are from DB for evaluator inspection.</p>
+    <p>Read-only evaluator tooling — plain semantic HTML, no JS framework. Every count traces to DB rows → receipts. Raw PII never appears in logs; display names here are for evaluator inspection only.</p>
+    <div class="footer-links">
+        <a href="/api/v1/dashboard/reconciliation" target="_blank">Reconciliation JSON</a>
+        <a href="/api/v1/leads" target="_blank">Leads JSON</a>
+        <a href="/api/v1/manual-review?status=pending" target="_blank">Manual-review JSON</a>
+        <a href="/api/v1/dead-letter?resolved=false" target="_blank">Dead-letter JSON</a>
+    </div>
 </footer>
 </body>
 </html>

@@ -2,25 +2,47 @@
 {% block title %}Dead Letter{% endblock %}
 {% block content %}
 <h2>Dead-letter queue</h2>
-<p class="muted">{{ rows|length }} {{ "unresolved" if not resolved else "resolved" }} — <a href="/api/v1/dead-letter?resolved=false" target="_blank">JSON unresolved</a> · <a href="/api/v1/dead-letter?resolved=true" target="_blank">JSON resolved</a> — <a href="/dashboard">summary</a></p>
-<table>
-    <thead><tr><th>ID</th><th>Event</th><th>Stage</th><th>Error</th><th>Retries</th><th>Resolved</th><th>Created</th><th>Replay</th></tr></thead>
+<p class="subtitle">Pipeline stage that failed after bounded retries (FR-11). Replay is idempotent — safe after provider recovery.</p>
+
+<div class="kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px,1fr));">
+    <div class="kpi-card {% if not resolved and rows|length>0 %}fail{% else %}ok{% endif %}">
+        <div class="kpi-label">{% if not resolved %}Unresolved{% else %}Resolved shown{% endif %}</div>
+        <div class="kpi-value">{{ rows|length }}</div>
+        <div class="kpi-sub">{% if not resolved %}need replay{% else %}already replayed{% endif %}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">View</div>
+        <div class="kpi-sub" style="margin-top:4px;"><a href="/dashboard/dead-letter?resolved=false" class="btn" style="padding:4px 10px; font-size:0.82rem; {% if not resolved %}background:var(--accent); color:#fff; border-color:var(--accent);{% endif %}">Unresolved</a> <a href="/dashboard/dead-letter?resolved=true" class="btn" style="padding:4px 10px; font-size:0.82rem; {% if resolved %}background:var(--accent); color:#fff; border-color:var(--accent);{% endif %}">Resolved</a></div>
+        <div class="kpi-sub" style="margin-top:8px; font-size:0.82rem;"><a href="/api/v1/dead-letter?resolved=false" target="_blank">JSON unresolved</a> &middot; <a href="/api/v1/dead-letter?resolved=true" target="_blank">JSON resolved</a></div>
+    </div>
+    <div class="kpi-card" style="grid-column: span 1.2;">
+        <div class="kpi-label">Replay action</div>
+        <div class="kpi-sub" style="margin-top:4px; font-size:0.82rem; line-height:1.5;"><span class="mono">POST {{ rows[0].replay_url if rows else "/api/v1/admin/replay/{event_id}" }}</span><br><span class="muted">with</span> <span class="mono">Authorization: Bearer $ADMIN_API_KEY</span><br>Simulate: <span class="mono">POST /api/v1/admin/simulate-failure</span></div>
+    </div>
+</div>
+
+<p class="muted" style="font-size:0.85rem;">{{ rows|length }} {{ "unresolved" if not resolved else "resolved" }} &middot; <a href="/api/v1/dead-letter?resolved=false" target="_blank">JSON unresolved</a> &middot; <a href="/api/v1/dead-letter?resolved=true" target="_blank">JSON resolved</a> &mdash; <a href="/dashboard">summary</a></p>
+
+<div class="card" style="padding:0; overflow:hidden;">
+<table style="margin:0; border:none; border-radius:0;">
+    <thead><tr><th>ID</th><th>Event</th><th>Stage</th><th style="min-width:240px;">Error</th><th style="text-align:right;">Retries</th><th>Resolved</th><th>Created</th><th>Replay</th></tr></thead>
     <tbody>
         {% for r in rows %}
         <tr>
-            <td class="muted">{{ r.id[:8] }}…</td>
-            <td><a href="/api/v1/events/{{ r.event_id }}" target="_blank">{{ r.event_id[:8] }}…</a></td>
-            <td>{{ r.stage }}</td>
-            <td class="muted" title="{{ r.error }}">{{ r.error[:60] }}{% if r.error|length >60 %}…{% endif %}</td>
-            <td>{{ r.retry_count }}</td>
-            <td>{% if r.resolved %}yes{% else %}no{% endif %}</td>
-            <td class="muted">{{ r.created_at or "—" }}</td>
-            <td>{% if not r.resolved %}<a href="{{ r.replay_url }}" target="_blank">replay</a> <span class="muted">(POST Bearer)</span>{% else %}—{% endif %}</td>
+            <td class="muted mono" title="{{ r.id }}">{{ r.id[:8] }}…</td>
+            <td><a href="/api/v1/events/{{ r.event_id }}" target="_blank" class="mono" style="font-weight:600;">{{ r.event_id[:8] }}…</a></td>
+            <td><span class="badge badge-FAIL">{{ r.stage }}</span></td>
+            <td class="muted" title="{{ r.error }}" style="font-size:0.84rem; max-width:320px; word-break:break-word;">{{ r.error[:80] }}{% if r.error|length >80 %}…{% endif %}</td>
+            <td style="text-align:right;" class="numeric">{{ r.retry_count }}</td>
+            <td>{% if r.resolved %}<span class="badge badge-ok">yes</span>{% else %}<span class="badge badge-FAIL">no</span>{% endif %}</td>
+            <td class="muted mono" style="font-size:0.82rem;">{{ r.created_at or "—" }}</td>
+            <td>{% if not r.resolved %}<a href="{{ r.replay_url }}" target="_blank" class="btn primary" style="padding:4px 10px; font-size:0.82rem;">replay</a> <span class="muted" style="font-size:0.72rem;">(POST Bearer)</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         </tr>
         {% else %}
-        <tr><td colspan="8" class="muted">No entries</td></tr>
+        <tr><td colspan="8"><div class="empty">No entries {% if not resolved %}&mdash; healthy: no outstanding failures. Create one via <span class="mono">POST /api/v1/admin/simulate-failure</span> in tests.{% endif %}</div></td></tr>
         {% endfor %}
     </tbody>
 </table>
-<p class="muted">Replay via <code>POST {{ rows[0].replay_url if rows else "/api/v1/admin/replay/{event_id}" }}</code> with <code>Authorization: Bearer $ADMIN_API_KEY</code>. Simulate failure via <code>POST /api/v1/admin/simulate-failure</code>.</p>
+</div>
+<p class="muted" style="font-size:0.82rem; margin-top:8px;">Replay via <code>POST {{ rows[0].replay_url if rows else "/api/v1/admin/replay/{event_id}" }}</code> with <code>Authorization: Bearer $ADMIN_API_KEY</code>. Simulate failure via <code>POST /api/v1/admin/simulate-failure</code>.</p>
 {% endblock %}

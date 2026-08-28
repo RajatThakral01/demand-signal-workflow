@@ -2,32 +2,46 @@
 {% block title %}Leads{% endblock %}
 {% block content %}
 <h2>Leads</h2>
-<form method="get" action="/dashboard/leads">
+<p class="subtitle">{{ leads|length }} lead(s) &middot; one lead per canonical identity &middot; <a href="/api/v1/leads" target="_blank">JSON</a></p>
+
+<form method="get" action="/dashboard/leads" class="filter-bar">
     <label>Status <input name="status" value="{{ filters.status or '' }}" placeholder="routed"></label>
     <label>Source <input name="source" value="{{ filters.source or '' }}" placeholder="web_form"></label>
     <label>Decision <input name="decision" value="{{ filters.decision or '' }}" placeholder="hot"></label>
-    <button type="submit">Filter</button>
-    <a href="/dashboard/leads">Clear</a>
+    <div class="filter-actions">
+        <button type="submit" class="primary">Filter</button>
+        <a href="/dashboard/leads" class="btn">Clear</a>
+    </div>
 </form>
-<p class="muted">{{ leads|length }} lead(s) — <a href="/api/v1/leads" target="_blank">JSON</a></p>
-<table>
-    <thead><tr><th>Lead</th><th>Identity</th><th>Status</th><th>Queue</th><th>Rule</th><th>Score</th><th>Decision</th><th>Escalated</th><th>SLA deadline</th></tr></thead>
+
+<div class="card" style="padding:0; overflow:hidden;">
+<table style="margin:0; border:none; border-radius:0;">
+    <thead><tr><th>Lead</th><th>Identity</th><th>Status</th><th>Queue</th><th>Rule</th><th style="text-align:right;">Score</th><th>Decision</th><th>Escalated</th><th>SLA deadline</th></tr></thead>
     <tbody>
         {% for l in leads %}
         <tr>
-            <td><a href="/dashboard/leads/{{ l.lead_id }}">{{ l.lead_id[:8] }}…</a></td>
-            <td class="muted">{{ l.identity_id[:8] }}…</td>
-            <td>{{ l.status }}</td>
-            <td>{{ l.queue or "—" }}</td>
-            <td>{{ l.rule_matched or "—" }}</td>
-            <td>{{ l.score if l.score is not none else "—" }}</td>
-            <td>{{ l.decision or "—" }}</td>
-            <td>{% if l.escalated %}yes{% else %}no{% endif %}</td>
-            <td class="muted">{{ l.sla_deadline or "—" }}</td>
+            <td><a href="/dashboard/leads/{{ l.lead_id }}" class="mono" style="font-weight:600;">{{ l.lead_id[:8] }}…</a></td>
+            <td class="muted mono">{{ l.identity_id[:8] }}…</td>
+            <td><span class="badge badge-{{ l.status }}">{{ l.status }}</span></td>
+            <td>{% if l.queue %}<span class="mono">{{ l.queue }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td class="muted mono" style="font-size:0.82rem;">{{ l.rule_matched or "—" }}</td>
+            <td style="text-align:right;" class="numeric">{{ l.score if l.score is not none else "—" }}</td>
+            <td>
+                {% if l.decision == "hot" %}<span class="badge badge-hot">hot</span>
+                {% elif l.decision == "warm" %}<span class="badge badge-warm">warm</span>
+                {% elif l.decision == "cold" %}<span class="badge badge-cold">cold</span>
+                {% elif l.decision == "needs_review" %}<span class="badge badge-needs_review">needs_review</span>
+                {% elif l.decision %}<span class="badge">{{ l.decision }}</span>
+                {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+            <td>{% if l.escalated %}<span class="badge badge-FAIL">yes</span>{% else %}<span class="badge badge-ok">no</span>{% endif %}</td>
+            <td class="muted mono" style="font-size:0.82rem;">{{ l.sla_deadline or "—" }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="9" class="muted">No leads</td></tr>
+        <tr><td colspan="9"><div class="empty">No leads — seed fixtures via <span class="mono">fixtures/generate_and_post.py</span> or POST to <span class="mono">/api/v1/events</span></div></td></tr>
         {% endfor %}
     </tbody>
 </table>
+</div>
+<p class="muted" style="font-size:0.82rem; margin-top:8px;">Click a lead ID for full trail (score features, attribution, source event). Escalated is computed on read (<span class="mono">sla_deadline &lt; now()</span>).</p>
 {% endblock %}

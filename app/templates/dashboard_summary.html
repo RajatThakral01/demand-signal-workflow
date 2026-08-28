@@ -2,59 +2,148 @@
 {% block title %}Dashboard — Summary{% endblock %}
 {% block content %}
 <h2>Dashboard summary</h2>
+<p class="subtitle">Live pipeline overview — every number traces to DB rows → receipts. Reconciliation is computed fresh on every request (no cache).</p>
 
-<p>
-    <strong>Reconciliation:</strong>
-    <span class="badge badge-{{ recon.status }}">{{ recon.status }}</span>
-    <span class="muted">variance {{ recon.variance }} (overall {{ recon.overall_status }})</span>
-    — <a href="/api/v1/dashboard/reconciliation" target="_blank">JSON</a>
-    {% if recon.status == "PASS" %}<span class="badge badge-PASS">PASS</span>{% else %}<span class="badge badge-FAIL">FAIL</span>{% endif %}
-</p>
+<!-- Reconciliation banner: must keep "Reconciliation:" text and PASS/FAIL badges for tests -->
+<div class="banner banner-{{ recon.status }}">
+    <div>
+        <div class="banner-title">Reconciliation: <span class="badge badge-{{ recon.status }}">{{ recon.status }}</span> {% if recon.status == "PASS" %}<span class="badge badge-PASS">PASS</span>{% else %}<span class="badge badge-FAIL">FAIL</span>{% endif %}</div>
+        <div class="banner-meta">variance {{ recon.variance }} &middot; overall {{ recon.overall_status }} &middot; window since={{ recon.window.since or "—" }} until={{ recon.window.until or "—" }} &middot; <a href="/api/v1/dashboard/reconciliation" target="_blank">JSON</a></div>
+    </div>
+    <div style="margin-left:auto; text-align:right;">
+        <div class="kpi-value" style="font-size:1.4rem;">{{ recon.variance }}</div>
+        <div class="kpi-label" style="margin:0;">variance</div>
+    </div>
+</div>
 
-<h3>Counts by source</h3>
-<table>
-    <thead><tr><th>Source</th><th>Count</th></tr></thead>
-    <tbody>
-        <tr><td>web_form</td><td>{{ summary.by_source.web_form }}</td></tr>
-        <tr><td>social_mention</td><td>{{ summary.by_source.social_mention }}</td></tr>
-        <tr><td>email_engagement</td><td>{{ summary.by_source.email_engagement }}</td></tr>
-        <tr><th>Total events</th><th>{{ summary.total_events }}</th></tr>
-    </tbody>
-</table>
+<!-- KPI cards — all important counts at a glance -->
+<div class="kpi-grid">
+    <div class="kpi-card accent">
+        <div class="kpi-label">Total events</div>
+        <div class="kpi-value">{{ summary.total_events }}</div>
+        <div class="kpi-sub">{{ summary.valid_events }} valid &middot; {{ summary.invalid_events }} invalid</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Valid events</div>
+        <div class="kpi-value">{{ summary.valid_events }}</div>
+        <div class="kpi-sub">accepted by schema</div>
+    </div>
+    <div class="kpi-card">
+        <div class="kpi-label">Invalid events</div>
+        <div class="kpi-value">{{ summary.invalid_events }}</div>
+        <div class="kpi-sub">isolated, never dropped</div>
+    </div>
+    <div class="kpi-card ok">
+        <div class="kpi-label">Total leads</div>
+        <div class="kpi-value">{{ summary.total_leads }}</div>
+        <div class="kpi-sub">one per canonical identity</div>
+    </div>
+    <div class="kpi-card {% if summary.pending_reviews>0 %}warn{% endif %}">
+        <div class="kpi-label">Manual review pending</div>
+        <div class="kpi-value">{{ summary.pending_reviews }}</div>
+        <div class="kpi-sub"><a href="/dashboard/manual-review">view queue</a></div>
+    </div>
+    <div class="kpi-card {% if summary.dead_letters>0 %}fail{% endif %}">
+        <div class="kpi-label">Dead letter unresolved</div>
+        <div class="kpi-value">{{ summary.dead_letters }}</div>
+        <div class="kpi-sub"><a href="/dashboard/dead-letter">view dead letter</a></div>
+    </div>
+</div>
 
-<h3>Counts by status / decision</h3>
-<table>
-    <thead><tr><th>Dimension</th><th>Key</th><th>Count</th></tr></thead>
-    <tbody>
-        <tr><td>events valid</td><td>valid</td><td>{{ summary.valid_events }}</td></tr>
-        <tr><td>events invalid</td><td>invalid</td><td>{{ summary.invalid_events }}</td></tr>
-        <tr><td>leads total</td><td>—</td><td>{{ summary.total_leads }}</td></tr>
-        {% for k,v in summary.by_decision.items() %}
-        <tr><td>decision</td><td>{{ k }}</td><td>{{ v }}</td></tr>
-        {% endfor %}
-        {% for k,v in summary.by_status.items() %}
-        {% if v>0 %}<tr><td>lead status</td><td>{{ k }}</td><td>{{ v }}</td></tr>{% endif %}
-        {% endfor %}
-    </tbody>
-</table>
+<div class="grid-2">
+    <section class="card">
+        <div class="card-header">
+            <h3>Counts by source</h3>
+            <span class="muted" style="font-size:0.82rem;">by ingested connector</span>
+        </div>
+        <table>
+            <thead><tr><th>Source</th><th style="text-align:right;">Count</th><th style="text-align:right;">Share</th></tr></thead>
+            <tbody>
+                <tr><td><span class="mono">web_form</span></td><td style="text-align:right;" class="numeric">{{ summary.by_source.web_form }}</td><td style="text-align:right;" class="muted">{% if summary.total_events %}{{ ((summary.by_source.web_form / summary.total_events)*100) | round(1) }}%{% else %}—{% endif %}</td></tr>
+                <tr><td><span class="mono">social_mention</span></td><td style="text-align:right;" class="numeric">{{ summary.by_source.social_mention }}</td><td style="text-align:right;" class="muted">{% if summary.total_events %}{{ ((summary.by_source.social_mention / summary.total_events)*100) | round(1) }}%{% else %}—{% endif %}</td></tr>
+                <tr><td><span class="mono">email_engagement</span></td><td style="text-align:right;" class="numeric">{{ summary.by_source.email_engagement }}</td><td style="text-align:right;" class="muted">{% if summary.total_events %}{{ ((summary.by_source.email_engagement / summary.total_events)*100) | round(1) }}%{% else %}—{% endif %}</td></tr>
+                <tr><th>Total events</th><th style="text-align:right;">{{ summary.total_events }}</th><th style="text-align:right;">100%</th></tr>
+            </tbody>
+        </table>
+        <p class="muted" style="font-size:0.82rem; margin:8px 0 0;">Total events includes both valid and invalid rows.</p>
+    </section>
 
-<h3>Queues</h3>
-<table>
-    <thead><tr><th>Queue</th><th>Outstanding</th><th>Link</th></tr></thead>
-    <tbody>
-        <tr><td>manual review pending</td><td>{{ summary.pending_reviews }}</td><td><a href="/dashboard/manual-review">view queue</a></td></tr>
-        <tr><td>dead letter unresolved</td><td>{{ summary.dead_letters }}</td><td><a href="/dashboard/dead-letter">view dead letter</a></td></tr>
-    </tbody>
-</table>
+    <section class="card">
+        <div class="card-header">
+            <h3>Counts by status / decision</h3>
+            <span class="muted" style="font-size:0.82rem;">scoring & lead lifecycle</span>
+        </div>
+        <table>
+            <thead><tr><th>Dimension</th><th>Key</th><th style="text-align:right;">Count</th></tr></thead>
+            <tbody>
+                <tr><td>events valid</td><td><span class="badge badge-ok">valid</span></td><td style="text-align:right;" class="numeric">{{ summary.valid_events }}</td></tr>
+                <tr><td>events invalid</td><td><span class="badge badge-FAIL">invalid</span></td><td style="text-align:right;" class="numeric">{{ summary.invalid_events }}</td></tr>
+                <tr><td>leads total</td><td>—</td><td style="text-align:right;" class="numeric">{{ summary.total_leads }}</td></tr>
+                {% for k,v in summary.by_decision.items() %}
+                <tr>
+                    <td>decision</td>
+                    <td>
+                        {% if k == "hot" %}<span class="badge badge-hot">hot</span>
+                        {% elif k == "warm" %}<span class="badge badge-warm">warm</span>
+                        {% elif k == "cold" %}<span class="badge badge-cold">cold</span>
+                        {% elif k == "needs_review" %}<span class="badge badge-needs_review">needs_review</span>
+                        {% else %}<span class="badge">{{ k }}</span>{% endif %}
+                    </td>
+                    <td style="text-align:right;" class="numeric">{{ v }}</td>
+                </tr>
+                {% endfor %}
+                {% for k,v in summary.by_status.items() %}
+                {% if v>0 %}<tr><td>lead status</td><td><span class="mono">{{ k }}</span></td><td style="text-align:right;" class="numeric">{{ v }}</td></tr>{% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
 
-<h3>Reconciliation detail</h3>
-<table>
-    <thead><tr><th>Entity</th><th>Dashboard</th><th>Receipts</th><th>Variance</th><th>Status</th></tr></thead>
-    <tbody>
-        {% for row in recon.reconciliation %}
-        <tr><td>{{ row.entity }}</td><td>{{ row.dashboard_count }}</td><td>{{ row.receipt_count }}</td><td>{{ row.variance }}</td><td><span class="badge badge-{{ row.status }}">{{ row.status }}</span></td></tr>
-        {% endfor %}
-    </tbody>
-</table>
-<p class="muted">Window: since={{ recon.window.since or "—" }} until={{ recon.window.until or "—" }}</p>
+<section class="card">
+    <div class="card-header">
+        <h3>Queues</h3>
+        <span class="muted" style="font-size:0.82rem;">outstanding work</span>
+    </div>
+    <table>
+        <thead><tr><th>Queue</th><th style="text-align:right;">Outstanding</th><th>Link</th><th style="width:28%;">State</th></tr></thead>
+        <tbody>
+            <tr>
+                <td>manual review pending</td>
+                <td style="text-align:right;" class="numeric">{{ summary.pending_reviews }}</td>
+                <td><a href="/dashboard/manual-review" class="btn" style="padding:4px 10px; font-size:0.82rem;">view queue</a></td>
+                <td>{% if summary.pending_reviews==0 %}<span class="badge badge-ok">clear</span>{% else %}<span class="badge badge-pending">{{ summary.pending_reviews }} pending</span>{% endif %}</td>
+            </tr>
+            <tr>
+                <td>dead letter unresolved</td>
+                <td style="text-align:right;" class="numeric">{{ summary.dead_letters }}</td>
+                <td><a href="/dashboard/dead-letter" class="btn" style="padding:4px 10px; font-size:0.82rem;">view dead letter</a></td>
+                <td>{% if summary.dead_letters==0 %}<span class="badge badge-ok">clear</span>{% else %}<span class="badge badge-FAIL">{{ summary.dead_letters }} unresolved</span>{% endif %}</td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+
+<section class="card">
+    <div class="card-header">
+        <h3>Reconciliation detail</h3>
+        <a href="/api/v1/dashboard/reconciliation" target="_blank" class="btn" style="padding:4px 10px; font-size:0.82rem;">JSON</a>
+    </div>
+    <p class="muted" style="font-size:0.85rem; margin:0 0 8px;">Each entity count is independently recomputed from <span class="mono">receipts</span>. Variance must be <strong>0</strong> (FR-10).</p>
+    <table>
+        <thead><tr><th>Entity</th><th style="text-align:right;">Dashboard</th><th style="text-align:right;">Receipts</th><th style="text-align:right;">Variance</th><th>Status</th></tr></thead>
+        <tbody>
+            {% for row in recon.reconciliation %}
+            <tr>
+                <td><span class="mono">{{ row.entity }}</span></td>
+                <td style="text-align:right;" class="numeric">{{ row.dashboard_count }}</td>
+                <td style="text-align:right;" class="numeric">{{ row.receipt_count }}</td>
+                <td style="text-align:right;" class="numeric">{% if row.variance==0 %}<span style="color:var(--ok); font-weight:700;">0</span>{% else %}<span style="color:var(--fail); font-weight:700;">{{ row.variance }}</span>{% endif %}</td>
+                <td><span class="badge badge-{{ row.status }}">{{ row.status }}</span></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="muted" style="font-size:0.82rem; margin:10px 0 0;">Window: since={{ recon.window.since or "—" }} until={{ recon.window.until or "—" }} &middot; total variance <strong style="color:{% if recon.variance==0 %}var(--ok){% else %}var(--fail){% endif %};">{{ recon.variance }}</strong></p>
+</section>
 {% endblock %}

@@ -1,57 +1,73 @@
 {% extends "base.html" %}
 {% block title %}Lead {{ lead.lead_id[:8] }}{% endblock %}
 {% block content %}
-<h2>Lead {{ lead.lead_id }}</h2>
-<p><a href="/dashboard/leads">← back to leads</a> — <a href="/api/v1/leads/{{ lead.lead_id }}" target="_blank">JSON</a></p>
-<table>
-    <tbody>
-        <tr><th>Identity</th><td>{{ lead.identity_id }}</td></tr>
-        <tr><th>Status</th><td>{{ lead.status }}</td></tr>
-        <tr><th>Source event</th><td><a href="/api/v1/events/{{ lead.source_event_id }}" target="_blank">{{ lead.source_event_id }}</a></td></tr>
-        <tr><th>Queue</th><td>{{ lead.queue or "—" }}</td></tr>
-        <tr><th>Rule matched</th><td>{{ lead.rule_matched or "—" }}</td></tr>
-        <tr><th>SLA deadline</th><td>{{ lead.sla_deadline or "—" }}</td></tr>
-        <tr><th>Escalated</th><td>{% if lead.escalated %}yes{% else %}no{% endif %}</td></tr>
-        <tr><th>Score</th><td>{{ lead.score if lead.score is not none else "—" }}</td></tr>
-        <tr><th>Decision</th><td>{{ lead.decision or "—" }}</td></tr>
-        <tr><th>Assigned at</th><td>{{ lead.assigned_at or "—" }}</td></tr>
-        <tr><th>Created / Updated</th><td>{{ lead.created_at }} / {{ lead.updated_at }}</td></tr>
-    </tbody>
-</table>
+<p style="margin:0 0 10px;"><a href="/dashboard/leads">← back to leads</a> &middot; <a href="/api/v1/leads/{{ lead.lead_id }}" target="_blank">JSON</a></p>
+<h2 style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">Lead <span class="mono" style="font-size:1.1rem; background:#f1f5f9; padding:2px 8px; border-radius:8px; border:1px solid var(--border);">{{ lead.lead_id }}</span> {% if lead.escalated %}<span class="badge badge-FAIL">escalated</span>{% endif %} {% if lead.decision == "hot" %}<span class="badge badge-hot">hot</span>{% elif lead.decision == "warm" %}<span class="badge badge-warm">warm</span>{% elif lead.decision == "cold" %}<span class="badge badge-cold">cold</span>{% elif lead.decision == "needs_review" %}<span class="badge badge-needs_review">needs_review</span>{% endif %}</h2>
+<p class="subtitle">Full trail — route, score, attribution and source event. Every field traces to a DB row + receipt.</p>
 
-<h3>Score features</h3>
-{% if lead.score_features %}
-<pre>{{ lead.score_features | tojson(indent=2) }}</pre>
-<p class="muted">Policy version: {{ lead.policy_version or "—" }}</p>
-{% else %}
-<p class="muted">No score features</p>
-{% endif %}
+<div class="grid-2">
+    <section class="card">
+        <h3>Overview</h3>
+        <table class="kv-table" style="margin:0;">
+            <tbody>
+                <tr><th>Identity</th><td class="mono">{{ lead.identity_id }}</td></tr>
+                <tr><th>Status</th><td><span class="badge badge-{{ lead.status }}">{{ lead.status }}</span></td></tr>
+                <tr><th>Source event</th><td><a href="/api/v1/events/{{ lead.source_event_id }}" target="_blank" class="mono" style="word-break:break-all;">{{ lead.source_event_id }}</a></td></tr>
+                <tr><th>Queue</th><td>{% if lead.queue %}<span class="mono">{{ lead.queue }}</span>{% else %}<span class="muted">—</span>{% endif %}</td></tr>
+                <tr><th>Rule matched</th><td class="muted mono" style="font-size:0.85rem;">{{ lead.rule_matched or "—" }}</td></tr>
+                <tr><th>SLA deadline</th><td class="mono" style="font-size:0.85rem;">{{ lead.sla_deadline or "—" }}</td></tr>
+                <tr><th>Escalated</th><td>{% if lead.escalated %}<span class="badge badge-FAIL">yes — sla breached</span>{% else %}<span class="badge badge-ok">no</span>{% endif %}</td></tr>
+                <tr><th>Score</th><td class="numeric" style="font-size:1.1rem;">{{ lead.score if lead.score is not none else "—" }}</td></tr>
+                <tr><th>Decision</th><td>{% if lead.decision %}<span class="badge badge-{{ lead.decision }}">{{ lead.decision }}</span>{% else %}<span class="muted">—</span>{% endif %}</td></tr>
+                <tr><th>Assigned at</th><td class="muted" style="font-size:0.85rem;">{{ lead.assigned_at or "—" }}</td></tr>
+                <tr><th>Created / Updated</th><td class="muted" style="font-size:0.82rem;">{{ lead.created_at }}<br>{{ lead.updated_at }}</td></tr>
+            </tbody>
+        </table>
+    </section>
 
-<h3>Attribution</h3>
-{% if lead.first_touch_at %}
-<table>
-    <tbody>
-        <tr><th>First touch at</th><td>{{ lead.first_touch_at }}</td></tr>
-        <tr><th>First source</th><td>{{ lead.first_touch_source }}</td></tr>
-        <tr><th>Last touch at</th><td>{{ lead.last_touch_at }}</td></tr>
-        <tr><th>Last source</th><td>{{ lead.last_touch_source }}</td></tr>
-    </tbody>
-</table>
-{% else %}
-<p class="muted">No attribution touch</p>
-{% endif %}
+    <section class="card">
+        <h3>Attribution</h3>
+        {% if lead.first_touch_at %}
+        <p class="muted" style="font-size:0.85rem; margin:0 0 10px;">First-touch immutable; last-touch is most recent <span class="mono">received_at</span>.</p>
+        <table class="kv-table" style="margin:0;">
+            <tbody>
+                <tr><th>First touch at</th><td class="mono" style="font-size:0.85rem;">{{ lead.first_touch_at }}</td></tr>
+                <tr><th>First source</th><td><span class="mono">{{ lead.first_touch_source }}</span></td></tr>
+                <tr><th>Last touch at</th><td class="mono" style="font-size:0.85rem;">{{ lead.last_touch_at }}</td></tr>
+                <tr><th>Last source</th><td><span class="mono">{{ lead.last_touch_source }}</span></td></tr>
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">No attribution touch</div>
+        {% endif %}
 
-{% if event %}
-<h3>Source event</h3>
-<table>
-    <tbody>
-        <tr><th>External ID</th><td>{{ event.external_event_id }}</td></tr>
-        <tr><th>Source</th><td>{{ event.source }}</td></tr>
-        <tr><th>Payload hash</th><td class="muted">{{ event.payload_hash[:12] }}…</td></tr>
-        <tr><th>Is edit</th><td>{{ event.is_edit }}</td></tr>
-        <tr><th>Valid</th><td>{{ event.is_valid }}</td></tr>
-        <tr><th>Received at</th><td>{{ event.received_at }}</td></tr>
-    </tbody>
-</table>
-{% endif %}
+        {% if event %}
+        <h3 style="margin-top:18px;">Source event</h3>
+        <table class="kv-table" style="margin:8px 0 0;">
+            <tbody>
+                <tr><th>External ID</th><td class="mono">{{ event.external_event_id }}</td></tr>
+                <tr><th>Source</th><td><span class="badge">{{ event.source }}</span></td></tr>
+                <tr><th>Payload hash</th><td class="muted mono" title="{{ event.payload_hash }}">{{ event.payload_hash[:16] }}…</td></tr>
+                <tr><th>Is edit</th><td>{% if event.is_edit %}<span class="badge badge-warm">edit</span>{% else %}<span class="muted">no</span>{% endif %}</td></tr>
+                <tr><th>Valid</th><td>{% if event.is_valid %}<span class="badge badge-ok">yes</span>{% else %}<span class="badge badge-FAIL">no</span>{% endif %}</td></tr>
+                <tr><th>Received at</th><td class="muted" style="font-size:0.85rem;">{{ event.received_at }}</td></tr>
+            </tbody>
+        </table>
+        {% endif %}
+    </section>
+</div>
+
+<section class="card">
+    <div class="card-header">
+        <h3>Score features</h3>
+        {% if lead.policy_version %}<span class="badge" style="background:#f1f5f9;">policy {{ lead.policy_version }}</span>{% endif %}
+    </div>
+    {% if lead.score_features %}
+    <p class="muted" style="font-size:0.85rem; margin:0 0 8px;">Inputs that produced the score — label, confidence, source/consent/campaign bonuses, clamped value.</p>
+    <pre>{{ lead.score_features | tojson(indent=2) }}</pre>
+    <p class="muted" style="font-size:0.82rem; margin:8px 0 0;">Policy version: {{ lead.policy_version or "—" }}</p>
+    {% else %}
+    <div class="empty">No score features</div>
+    {% endif %}
+</section>
 {% endblock %}

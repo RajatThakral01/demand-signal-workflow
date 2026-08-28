@@ -2,36 +2,63 @@
 {% block title %}Manual Review{% endblock %}
 {% block content %}
 <h2>Manual review queue</h2>
-<p class="muted">{{ rows|length }} pending — <a href="/api/v1/manual-review?status=pending" target="_blank">JSON pending</a> · <a href="/api/v1/manual-review?status=resolved" target="_blank">JSON resolved</a></p>
-<table>
-    <thead><tr><th>Review</th><th>Event</th><th>Candidate</th><th>Reason</th><th>Status</th><th>Resolved at</th><th>Action</th></tr></thead>
+<p class="subtitle">Ambiguous identity matches — never auto-merged. A reviewer chooses <span class="mono">create_new</span> or <span class="mono">merge_into</span>; resolution resumes the pipeline.</p>
+
+{% set pending_count = rows | selectattr('status','equalto','pending') | list | length %}
+{% set resolved_count = rows | selectattr('status','equalto','resolved') | list | length %}
+<div class="kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+    <div class="kpi-card {% if pending_count>0 %}warn{% else %}ok{% endif %}">
+        <div class="kpi-label">Pending</div>
+        <div class="kpi-value">{{ pending_count }}</div>
+        <div class="kpi-sub">awaiting reviewer</div>
+    </div>
+    <div class="kpi-card ok">
+        <div class="kpi-label">Resolved</div>
+        <div class="kpi-value">{{ resolved_count }}</div>
+        <div class="kpi-sub">total shown (max 100)</div>
+    </div>
+    <div class="kpi-card" style="grid-column: span 1;">
+        <div class="kpi-label">Links</div>
+        <div class="kpi-sub" style="margin-top:2px;"><a href="/api/v1/manual-review?status=pending" target="_blank">JSON pending</a> &middot; <a href="/api/v1/manual-review?status=resolved" target="_blank">JSON resolved</a></div>
+        <div class="kpi-sub" style="margin-top:6px; font-size:0.80rem; line-height:1.4;">POST <span class="mono">/api/v1/manual-review/{id}/resolve</span><br>with <span class="mono">{"decision":"merge_into"|"create_new"}</span></div>
+    </div>
+</div>
+
+<p class="muted" style="font-size:0.85rem;">{{ rows|length }} total rows shown &middot; pending first, then resolved &middot; HTML forms below post to <span class="mono">/dashboard/manual-review/{id}/resolve</span></p>
+
+<div class="card" style="padding:0; overflow:hidden;">
+<table style="margin:0; border:none; border-radius:0;">
+    <thead><tr><th>Review</th><th>Event</th><th>Candidate</th><th>Reason</th><th>Status</th><th>Resolved at</th><th style="min-width:240px;">Action</th></tr></thead>
     <tbody>
         {% for r in rows %}
         <tr>
-            <td class="muted">{{ r.id[:8] }}…</td>
-            <td><a href="/api/v1/events/{{ r.event_id }}" target="_blank">{{ r.event_id[:8] }}…</a></td>
-            <td class="muted">{{ (r.candidate_identity_id or "—")[:12] }}</td>
-            <td>{{ r.reason }}</td>
-            <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
-            <td class="muted">{{ r.resolved_at or "—" }}</td>
+            <td class="muted mono" title="{{ r.id }}">{{ r.id[:8] }}…</td>
+            <td><a href="/api/v1/events/{{ r.event_id }}" target="_blank" class="mono" style="font-weight:600;">{{ r.event_id[:8] }}…</a></td>
+            <td class="muted mono" title="{{ r.candidate_identity_id or '' }}" style="font-size:0.82rem;">{{ (r.candidate_identity_id or "—")[:12] }}{% if r.candidate_identity_id and r.candidate_identity_id|length>12 %}…{% endif %}</td>
+            <td style="max-width:260px;"><span title="{{ r.reason }}" style="word-break:break-word; font-size:0.88rem;">{{ r.reason }}</span></td>
+            <td>{% if r.status=="pending" %}<span class="badge badge-pending">pending</span>{% elif r.status=="resolved" %}<span class="badge badge-resolved">resolved</span>{% else %}<span class="badge badge-{{ r.status }}">{{ r.status }}</span>{% endif %}</td>
+            <td class="muted" style="font-size:0.82rem;">{{ r.resolved_at or "—" }}</td>
             <td>
                 {% if r.status == "pending" %}
-                <form class="inline" method="post" action="/dashboard/manual-review/{{ r.id }}/resolve">
-                    <input type="hidden" name="decision" value="create_new">
-                    <button type="submit" class="primary">Create new</button>
-                </form>
-                <form class="inline" method="post" action="/dashboard/manual-review/{{ r.id }}/resolve">
-                    <input type="hidden" name="decision" value="merge_into">
-                    <input name="identity_id" placeholder="identity_id" size="18" required>
-                    <button type="submit">Merge into</button>
-                </form>
-                {% else %}—{% endif %}
+                <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                    <form class="inline" method="post" action="/dashboard/manual-review/{{ r.id }}/resolve">
+                        <input type="hidden" name="decision" value="create_new">
+                        <button type="submit" class="primary" style="padding:5px 10px; font-size:0.84rem;">Create new</button>
+                    </form>
+                    <form class="inline" method="post" action="/dashboard/manual-review/{{ r.id }}/resolve" style="gap:4px;">
+                        <input type="hidden" name="decision" value="merge_into">
+                        <input name="identity_id" placeholder="identity_id" size="14" required style="padding:6px 8px; border:1px solid var(--border); border-radius:8px; font-size:0.84rem;">
+                        <button type="submit" style="padding:5px 10px; font-size:0.84rem;">Merge into</button>
+                    </form>
+                </div>
+                {% else %}<span class="muted">—</span>{% endif %}
             </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="muted">No entries</td></tr>
+        <tr><td colspan="7"><div class="empty">No entries — ambiguous fuzzy matches will appear here. Seed with a name-only social mention that collides.</div></td></tr>
         {% endfor %}
     </tbody>
 </table>
-<p class="muted">Resolve via <code>POST /api/v1/manual-review/{id}/resolve</code> with <code>{"decision":"merge_into"|"create_new","identity_id":"..."}</code>. HTML forms post to <code>/dashboard/manual-review/{id}/resolve</code> (same logic, no bearer needed for this evaluator tooling).</p>
+</div>
+<p class="muted" style="font-size:0.82rem; margin-top:8px;">Resolve via <code>POST /api/v1/manual-review/{id}/resolve</code> with <code>{"decision":"merge_into"|"create_new","identity_id":"..."}</code>. HTML forms post to <code>/dashboard/manual-review/{id}/resolve</code> (same logic, no bearer needed for this evaluator tooling).</p>
 {% endblock %}
